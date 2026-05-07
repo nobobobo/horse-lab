@@ -84,3 +84,13 @@
 - 的中率だけでモデルを評価すること。
 - Kelly を full Kelly で運用すること。
 - オッズデータの取得時刻を無視すること。
+
+## Implemented MVP Baseline
+
+The first executable baseline is dependency-light and supports win bets only.
+
+- `horse_lab.models.market.MarketImpliedProbabilityModel` converts latest pre-race win odds into normalized race-level probabilities.
+- `horse_lab.betting.kelly` calculates edge, full Kelly fraction, fractional Kelly stake fraction, and yen stake size.
+- `horse_lab.backtesting.simulator.BacktestSimulator` simulates runner-level win bets over historical predictions, odds, and results.
+- `horse_lab.evaluation.metrics` summarizes ROI, hit rate, turnover, and max drawdown.
+- `horse_lab.data` and `horse_lab.features` define protocols for storage and point-in-time feature generation.
