@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "horse-lab"
+version = "0.1.0"
+description = "Japanese horse-racing ensemble modeling and simulation platform."
+readme = "docs/architecture.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+ml = [
+    "lightgbm>=4.0",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
