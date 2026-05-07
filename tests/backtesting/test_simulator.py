@@ -46,8 +46,9 @@ def _result(runner_id: str, finish_position: int) -> Result:
     )
 
 
-def test_backtest_simulator_settles_same_race_bets_without_intra_race_resizing():
-    as_of = dt.datetime(2026, 5, 7, 14, 55)
+def test_backtest_simulator_settles_same_race_bets_without_intra_race_resizing_when_as_of_differs():
+    first_as_of = dt.datetime(2026, 5, 7, 14, 55)
+    second_as_of = dt.datetime(2026, 5, 7, 14, 56)
     simulator = BacktestSimulator(
         config=BacktestConfig(
             initial_bankroll_jpy=10_000,
@@ -62,12 +63,12 @@ def test_backtest_simulator_settles_same_race_bets_without_intra_race_resizing()
 
     result = simulator.run(
         predictions=[
-            _prediction("runner-1", probability=0.6, as_of=as_of),
-            _prediction("runner-2", probability=0.6, as_of=as_of),
+            _prediction("runner-1", probability=0.6, as_of=first_as_of),
+            _prediction("runner-2", probability=0.6, as_of=second_as_of),
         ],
         odds=[
-            _quote("runner-1", odds=3.0, captured_at=as_of),
-            _quote("runner-2", odds=2.0, captured_at=as_of),
+            _quote("runner-1", odds=3.0, captured_at=first_as_of),
+            _quote("runner-2", odds=2.0, captured_at=second_as_of),
         ],
         results=[
             _result("runner-1", finish_position=1),

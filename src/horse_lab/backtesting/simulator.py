@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from itertools import groupby
 from typing import Sequence
 
 from horse_lab.betting import KellyConfig, calculate_kelly_stake
@@ -69,26 +68,34 @@ class BacktestSimulator:
         records: list[BetRecord] = []
         bankroll_curve_jpy = [bankroll_jpy]
 
-        sorted_predictions = sorted(
-            predictions,
-            key=lambda prediction: (
-                prediction.as_of,
-                str(prediction.race_id),
-                str(prediction.runner_id),
+        predictions_by_race: dict[RaceId, list[ModelPrediction]] = {}
+        for prediction in predictions:
+            if prediction.target != PredictionTarget.WIN_PROBABILITY:
+                continue
+            predictions_by_race.setdefault(prediction.race_id, []).append(prediction)
+
+        race_groups = sorted(
+            (
+                sorted(
+                    race_predictions,
+                    key=lambda prediction: (
+                        prediction.as_of,
+                        str(prediction.runner_id),
+                    ),
+                )
+                for race_predictions in predictions_by_race.values()
+            ),
+            key=lambda race_predictions: (
+                race_predictions[0].as_of,
+                str(race_predictions[0].race_id),
             ),
         )
 
-        for _, prediction_group in groupby(
-            sorted_predictions,
-            key=lambda prediction: (prediction.as_of, prediction.race_id),
-        ):
+        for prediction_group in race_groups:
             group_records: list[BetRecord] = []
             group_profit_jpy = 0
 
             for prediction in prediction_group:
-                if prediction.target != PredictionTarget.WIN_PROBABILITY:
-                    continue
-
                 quote = _latest_quote_for_prediction(prediction, odds)
                 decision = calculate_kelly_stake(
                     probability=prediction.probability,
