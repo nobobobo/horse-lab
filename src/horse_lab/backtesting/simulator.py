@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import groupby
 from typing import Sequence
 
 from horse_lab.betting import KellyConfig, calculate_kelly_stake
@@ -77,43 +78,73 @@ class BacktestSimulator:
             ),
         )
 
-        for prediction in sorted_predictions:
-            if prediction.target != PredictionTarget.WIN_PROBABILITY:
-                continue
+        for _, prediction_group in groupby(
+            sorted_predictions,
+            key=lambda prediction: (prediction.as_of, prediction.race_id),
+        ):
+            group_records: list[BetRecord] = []
+            group_profit_jpy = 0
 
-            quote = _latest_quote_for_prediction(prediction, odds)
-            decision = calculate_kelly_stake(
-                probability=prediction.probability,
-                odds=quote.odds,
-                bankroll_jpy=bankroll_jpy,
-                config=self.config.kelly_config,
-            )
-            if decision.stake_jpy <= 0:
-                continue
+            for prediction in prediction_group:
+                if prediction.target != PredictionTarget.WIN_PROBABILITY:
+                    continue
 
-            race_result = _result_for_prediction(prediction, results)
-            is_win = race_result.did_win
-            payout_jpy = int(round(decision.stake_jpy * quote.odds)) if is_win else 0
-            profit_jpy = payout_jpy - decision.stake_jpy
-            bankroll_jpy += profit_jpy
-            bankroll_curve_jpy.append(bankroll_jpy)
-
-            records.append(
-                BetRecord(
-                    race_id=prediction.race_id,
-                    runner_id=prediction.runner_id,
-                    bet_type=BetType.WIN,
+                quote = _latest_quote_for_prediction(prediction, odds)
+                decision = calculate_kelly_stake(
                     probability=prediction.probability,
                     odds=quote.odds,
-                    edge=decision.edge,
-                    kelly_fraction=decision.full_kelly_fraction,
-                    stake_fraction=decision.stake_fraction,
-                    stake_jpy=decision.stake_jpy,
-                    payout_jpy=payout_jpy,
-                    profit_jpy=profit_jpy,
-                    bankroll_after_jpy=bankroll_jpy,
-                    is_win=is_win,
+                    bankroll_jpy=bankroll_jpy,
+                    config=self.config.kelly_config,
                 )
+                if decision.stake_jpy <= 0:
+                    continue
+
+                race_result = _result_for_prediction(prediction, results)
+                is_win = race_result.did_win
+                payout_jpy = int(round(decision.stake_jpy * quote.odds)) if is_win else 0
+                profit_jpy = payout_jpy - decision.stake_jpy
+                group_profit_jpy += profit_jpy
+
+                group_records.append(
+                    BetRecord(
+                        race_id=prediction.race_id,
+                        runner_id=prediction.runner_id,
+                        bet_type=BetType.WIN,
+                        probability=prediction.probability,
+                        odds=quote.odds,
+                        edge=decision.edge,
+                        kelly_fraction=decision.full_kelly_fraction,
+                        stake_fraction=decision.stake_fraction,
+                        stake_jpy=decision.stake_jpy,
+                        payout_jpy=payout_jpy,
+                        profit_jpy=profit_jpy,
+                        bankroll_after_jpy=0,
+                        is_win=is_win,
+                    )
+                )
+
+            if not group_records:
+                continue
+
+            bankroll_jpy += group_profit_jpy
+            bankroll_curve_jpy.append(bankroll_jpy)
+            records.extend(
+                BetRecord(
+                    race_id=record.race_id,
+                    runner_id=record.runner_id,
+                    bet_type=record.bet_type,
+                    probability=record.probability,
+                    odds=record.odds,
+                    edge=record.edge,
+                    kelly_fraction=record.kelly_fraction,
+                    stake_fraction=record.stake_fraction,
+                    stake_jpy=record.stake_jpy,
+                    payout_jpy=record.payout_jpy,
+                    profit_jpy=record.profit_jpy,
+                    bankroll_after_jpy=bankroll_jpy,
+                    is_win=record.is_win,
+                )
+                for record in group_records
             )
 
         summary = summarize_performance(

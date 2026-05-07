@@ -46,7 +46,7 @@ def _result(runner_id: str, finish_position: int) -> Result:
     )
 
 
-def test_backtest_simulator_accounts_for_one_win_and_one_loss():
+def test_backtest_simulator_settles_same_race_bets_without_intra_race_resizing():
     as_of = dt.datetime(2026, 5, 7, 14, 55)
     simulator = BacktestSimulator(
         config=BacktestConfig(
@@ -78,15 +78,16 @@ def test_backtest_simulator_accounts_for_one_win_and_one_loss():
     assert len(result.records) == 2
     assert result.records[0].stake_jpy == 1_000
     assert result.records[0].payout_jpy == 3_000
-    assert result.records[0].bankroll_after_jpy == 12_000
-    assert result.records[1].stake_jpy == 1_200
+    assert result.records[0].bankroll_after_jpy == 11_000
+    assert result.records[1].stake_jpy == 1_000
     assert result.records[1].payout_jpy == 0
-    assert result.records[1].bankroll_after_jpy == 10_800
-    assert result.final_bankroll_jpy == 10_800
+    assert result.records[1].bankroll_after_jpy == 11_000
+    assert result.final_bankroll_jpy == 11_000
     assert result.summary.total_bets == 2
     assert result.summary.wins == 1
-    assert result.summary.roi == pytest.approx(800 / 2_200)
-    assert result.summary.max_drawdown == pytest.approx(0.1)
+    assert result.summary.roi == pytest.approx(1_000 / 2_000)
+    assert result.summary.max_drawdown == pytest.approx(0.0)
+    assert result.bankroll_curve_jpy == (10_000, 11_000)
 
 
 def test_backtest_simulator_skips_zero_stake_predictions():
