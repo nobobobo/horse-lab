@@ -82,7 +82,6 @@ class BacktestSimulator:
                 continue
 
             quote = _latest_quote_for_prediction(prediction, odds)
-            race_result = _result_for_prediction(prediction, results)
             decision = calculate_kelly_stake(
                 probability=prediction.probability,
                 odds=quote.odds,
@@ -92,8 +91,9 @@ class BacktestSimulator:
             if decision.stake_jpy <= 0:
                 continue
 
+            race_result = _result_for_prediction(prediction, results)
             is_win = race_result.did_win
-            payout_jpy = int(decision.stake_jpy * quote.odds) if is_win else 0
+            payout_jpy = int(round(decision.stake_jpy * quote.odds)) if is_win else 0
             profit_jpy = payout_jpy - decision.stake_jpy
             bankroll_jpy += profit_jpy
             bankroll_curve_jpy.append(bankroll_jpy)
