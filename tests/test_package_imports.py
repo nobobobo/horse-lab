@@ -18,3 +18,12 @@ def test_baseline_modules_import():
     assert BacktestSimulator.__name__ == "BacktestSimulator"
     assert PerformanceSummary.__name__ == "PerformanceSummary"
     assert MarketImpliedProbabilityModel.__name__ == "MarketImpliedProbabilityModel"
+
+
+def test_storage_and_feature_protocols_import():
+    from horse_lab.data import RaceRepository, ResultRepository
+    from horse_lab.features import FeatureBuilder
+
+    assert RaceRepository.__name__ == "RaceRepository"
+    assert ResultRepository.__name__ == "ResultRepository"
+    assert FeatureBuilder.__name__ == "FeatureBuilder"
