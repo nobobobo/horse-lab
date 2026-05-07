@@ -55,6 +55,12 @@ def test_kelly_caps_fraction_and_rounds_to_stake_unit():
 
 def test_kelly_validates_probability_odds_bankroll_and_config():
     with pytest.raises(ValueError, match="probability"):
+        calculate_edge(probability=-0.1, odds=2.0)
+
+    with pytest.raises(ValueError, match="odds"):
+        calculate_edge(probability=0.5, odds=1.0)
+
+    with pytest.raises(ValueError, match="probability"):
         calculate_kelly_stake(probability=1.1, odds=2.0, bankroll_jpy=10_000)
 
     with pytest.raises(ValueError, match="odds"):
@@ -65,6 +71,12 @@ def test_kelly_validates_probability_odds_bankroll_and_config():
 
     with pytest.raises(ValueError, match="fractional_kelly"):
         KellyConfig(fractional_kelly=-0.1)
+
+    with pytest.raises(ValueError, match="max_stake_fraction"):
+        KellyConfig(max_stake_fraction=-0.1)
+
+    with pytest.raises(ValueError, match="minimum_edge"):
+        KellyConfig(minimum_edge=-0.1)
 
     with pytest.raises(ValueError, match="stake_unit_jpy"):
         KellyConfig(stake_unit_jpy=0)
