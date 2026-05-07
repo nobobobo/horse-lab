@@ -93,6 +93,13 @@ def test_market_model_uses_latest_quote_at_or_before_as_of():
     by_runner = {prediction.runner_id: prediction for prediction in predictions}
 
     assert by_runner[RunnerId("runner-1")].metadata["market_odds"] == 2.0
+    assert (
+        by_runner[RunnerId("runner-1")].metadata["odds_captured_at"]
+        == "2026-05-07T14:50:00"
+    )
+    assert by_runner[RunnerId("runner-1")].metadata[
+        "raw_implied_probability"
+    ] == pytest.approx(0.5)
     assert by_runner[RunnerId("runner-1")].probability == pytest.approx(2 / 3)
 
 
