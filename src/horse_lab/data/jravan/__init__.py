@@ -5,6 +5,12 @@ package keeps the platform-independent parsing and normalization boundary in
 Python so the rest of horse_lab can run on macOS/Linux.
 """
 
+from horse_lab.data.jravan.layouts import (
+    JRAVAN_MINIMAL_RA_FIELDS,
+    JRAVAN_MINIMAL_SE_FIELDS,
+    parse_minimal_ra_fields,
+    parse_minimal_se_fields,
+)
 from horse_lab.data.jravan.raw import (
     FixedWidthField,
     JvDataRecord,
@@ -15,8 +21,12 @@ from horse_lab.data.jravan.raw import (
 
 __all__ = [
     "FixedWidthField",
+    "JRAVAN_MINIMAL_RA_FIELDS",
+    "JRAVAN_MINIMAL_SE_FIELDS",
     "JvDataRecord",
     "parse_fixed_width_fields",
     "parse_jvdata_record",
+    "parse_minimal_ra_fields",
+    "parse_minimal_se_fields",
     "read_jvdata_records",
 ]
