@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
 from typing import Sequence
 
 from horse_lab.betting import KellyConfig, calculate_kelly_stake
@@ -12,6 +13,7 @@ from horse_lab.schemas import (
     ModelPrediction,
     OddsQuote,
     PredictionTarget,
+    Race,
     RaceId,
     Result,
     RunnerId,
@@ -63,6 +65,7 @@ class BacktestSimulator:
         predictions: Sequence[ModelPrediction],
         odds: Sequence[OddsQuote],
         results: Sequence[Result],
+        races: Sequence[Race] = (),
     ) -> BacktestResult:
         bankroll_jpy = self.config.initial_bankroll_jpy
         records: list[BetRecord] = []
@@ -74,22 +77,33 @@ class BacktestSimulator:
                 continue
             predictions_by_race.setdefault(prediction.race_id, []).append(prediction)
 
-        race_groups = sorted(
-            (
-                sorted(
-                    race_predictions,
-                    key=lambda prediction: (
-                        prediction.as_of,
-                        str(prediction.runner_id),
-                    ),
-                )
-                for race_predictions in predictions_by_race.values()
-            ),
-            key=lambda race_predictions: (
-                race_predictions[0].as_of,
-                str(race_predictions[0].race_id),
-            ),
-        )
+        race_groups = [
+            sorted(
+                race_predictions,
+                key=lambda prediction: (
+                    prediction.as_of,
+                    str(prediction.runner_id),
+                ),
+            )
+            for race_predictions in predictions_by_race.values()
+        ]
+        if races:
+            race_by_id = {race.race_id: race for race in races}
+            race_groups = sorted(
+                race_groups,
+                key=lambda race_predictions: _race_chronology_key(
+                    race_predictions[0],
+                    race_by_id,
+                ),
+            )
+        else:
+            race_groups = sorted(
+                race_groups,
+                key=lambda race_predictions: (
+                    race_predictions[0].as_of,
+                    str(race_predictions[0].race_id),
+                ),
+            )
 
         for prediction_group in race_groups:
             group_records: list[BetRecord] = []
@@ -189,6 +203,30 @@ def _latest_quote_for_prediction(
             f"race_id={prediction.race_id!r}, runner_id={prediction.runner_id!r}"
         )
     return max(matching_quotes, key=lambda quote: quote.captured_at)
+
+
+def _race_chronology_key(
+    prediction: ModelPrediction,
+    race_by_id: dict[RaceId, Race],
+) -> tuple[int, datetime, date, int, str]:
+    race = race_by_id.get(prediction.race_id)
+    if race is None:
+        return (
+            1,
+            prediction.as_of,
+            date.max,
+            0,
+            str(prediction.race_id),
+        )
+
+    chronological_time = race.start_time or datetime.combine(race.race_date, time.min)
+    return (
+        0,
+        chronological_time,
+        race.race_date,
+        race.race_number,
+        str(race.race_id),
+    )
 
 
 def _result_for_prediction(

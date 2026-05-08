@@ -6,13 +6,17 @@ from horse_lab.backtesting import BacktestConfig, BacktestSimulator
 from horse_lab.betting import KellyConfig
 from horse_lab.schemas import (
     BetType,
+    CourseDirection,
     ModelName,
     ModelPrediction,
     OddsQuote,
     PredictionTarget,
+    Race,
     RaceId,
     Result,
     RunnerId,
+    Surface,
+    TrackCondition,
 )
 
 
@@ -41,6 +45,69 @@ def _quote(runner_id: str, odds: float, captured_at: dt.datetime) -> OddsQuote:
 def _result(runner_id: str, finish_position: int) -> Result:
     return Result(
         race_id=RaceId("race-1"),
+        runner_id=RunnerId(runner_id),
+        finish_position=finish_position,
+    )
+
+
+def _race(
+    race_id: str,
+    *,
+    race_number: int,
+    start_time: dt.datetime,
+) -> Race:
+    return Race(
+        race_id=RaceId(race_id),
+        race_date=start_time.date(),
+        venue="Tokyo",
+        race_number=race_number,
+        name=None,
+        surface=Surface.TURF,
+        distance_m=1200,
+        direction=CourseDirection.LEFT,
+        track_condition=TrackCondition.FIRM,
+        start_time=start_time,
+        field_size=1,
+    )
+
+
+def _race_prediction(
+    race_id: str,
+    runner_id: str,
+    *,
+    probability: float,
+    as_of: dt.datetime,
+) -> ModelPrediction:
+    return ModelPrediction(
+        race_id=RaceId(race_id),
+        runner_id=RunnerId(runner_id),
+        model_name=ModelName("test_model"),
+        model_version="test",
+        target=PredictionTarget.WIN_PROBABILITY,
+        probability=probability,
+        as_of=as_of,
+    )
+
+
+def _race_quote(
+    race_id: str,
+    runner_id: str,
+    *,
+    odds: float,
+    captured_at: dt.datetime,
+) -> OddsQuote:
+    return OddsQuote(
+        race_id=RaceId(race_id),
+        runner_id=RunnerId(runner_id),
+        bet_type=BetType.WIN,
+        captured_at=captured_at,
+        odds=odds,
+    )
+
+
+def _race_result(race_id: str, runner_id: str, *, finish_position: int) -> Result:
+    return Result(
+        race_id=RaceId(race_id),
         runner_id=RunnerId(runner_id),
         finish_position=finish_position,
     )
@@ -89,6 +156,46 @@ def test_backtest_simulator_settles_same_race_bets_without_intra_race_resizing_w
     assert result.summary.roi == pytest.approx(1_000 / 2_000)
     assert result.summary.max_drawdown == pytest.approx(0.0)
     assert result.bankroll_curve_jpy == (10_000, 11_000)
+
+
+def test_backtest_simulator_orders_races_by_start_time_when_races_are_provided():
+    as_of = dt.datetime(2026, 5, 7, 9, 55)
+    simulator = BacktestSimulator(
+        config=BacktestConfig(
+            initial_bankroll_jpy=10_000,
+            kelly_config=KellyConfig(
+                fractional_kelly=1.0,
+                max_stake_fraction=0.10,
+                minimum_edge=0.0,
+                stake_unit_jpy=1,
+            ),
+        )
+    )
+
+    result = simulator.run(
+        predictions=[
+            _race_prediction("race-a", "runner-a", probability=0.6, as_of=as_of),
+            _race_prediction("race-z", "runner-z", probability=0.6, as_of=as_of),
+        ],
+        odds=[
+            _race_quote("race-a", "runner-a", odds=2.0, captured_at=as_of),
+            _race_quote("race-z", "runner-z", odds=2.0, captured_at=as_of),
+        ],
+        results=[
+            _race_result("race-a", "runner-a", finish_position=2),
+            _race_result("race-z", "runner-z", finish_position=1),
+        ],
+        races=[
+            _race("race-a", race_number=2, start_time=dt.datetime(2026, 5, 7, 11, 0)),
+            _race("race-z", race_number=1, start_time=dt.datetime(2026, 5, 7, 10, 0)),
+        ],
+    )
+
+    assert [record.race_id for record in result.records] == [
+        RaceId("race-z"),
+        RaceId("race-a"),
+    ]
+    assert result.bankroll_curve_jpy == (10_000, 11_000, 9_900)
 
 
 def test_backtest_simulator_skips_zero_stake_predictions():
