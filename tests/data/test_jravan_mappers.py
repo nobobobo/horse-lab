@@ -221,6 +221,13 @@ def test_build_jravan_runner_id_rejects_malformed_horse_number():
         build_jravan_runner_id(fields)
 
 
+def test_build_jravan_runner_id_rejects_zero_horse_number():
+    fields = parse_minimal_se_fields(_se_record(horse_number="00"))
+
+    with pytest.raises(ValueError, match="horse_number"):
+        build_jravan_runner_id(fields)
+
+
 def test_map_se_record_to_entry_maps_minimal_entry_schema():
     entry = map_se_record_to_entry(_se_record())
 
@@ -293,3 +300,8 @@ def test_map_se_record_to_entry_rejects_non_se_record():
 def test_map_se_record_to_result_rejects_invalid_finish_position():
     with pytest.raises(ValueError, match="Invalid integer for finish_position"):
         map_se_record_to_result(_se_record(finish_position="XX"))
+
+
+def test_map_se_record_to_result_rejects_zero_finish_position():
+    with pytest.raises(ValueError, match="finish_position"):
+        map_se_record_to_result(_se_record(finish_position="00"))

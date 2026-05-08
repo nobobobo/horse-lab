@@ -75,6 +75,10 @@ def build_jravan_race_id(fields: Mapping[str, str]) -> RaceId:
 
 def build_jravan_runner_id(fields: Mapping[str, str]) -> RunnerId:
     horse_number = _require_two_digit_component(fields, "horse_number")
+    if _parse_int(horse_number, "horse_number") <= 0:
+        raise ValueError(
+            f"Invalid horse_number: expected positive, got {horse_number!r}"
+        )
     return RunnerId(f"{build_jravan_race_id(fields)}-{horse_number}")
 
 
@@ -161,6 +165,10 @@ def map_se_record_to_result(record: JvDataRecord) -> Result | None:
     )
     if finish_position is None:
         return None
+    if finish_position <= 0:
+        raise ValueError(
+            f"Invalid finish_position: expected positive, got {finish_position!r}"
+        )
 
     return Result(
         race_id=build_jravan_race_id(fields),
