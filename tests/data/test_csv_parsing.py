@@ -4,13 +4,18 @@ import pytest
 
 from horse_lab.data.csv_parsing import (
     parse_bool,
+    parse_date,
+    parse_datetime,
+    parse_datetime_or_none,
     parse_entry_row,
+    parse_feature_value,
     parse_feature_row,
     parse_float_or_none,
     parse_int_or_none,
     parse_odds_quote_row,
     parse_race_row,
     parse_result_row,
+    parse_str_or_none,
 )
 from horse_lab.schemas import (
     BetType,
@@ -41,6 +46,53 @@ def test_optional_number_parsers_return_none_for_blank_values():
     assert parse_float_or_none("56.5") == 56.5
 
 
+def test_optional_string_parser_strips_blank_values():
+    assert parse_str_or_none("") is None
+    assert parse_str_or_none("   ") is None
+    assert parse_str_or_none(" Tokyo ") == "Tokyo"
+
+
+def test_date_and_datetime_parsers_use_iso_values():
+    assert parse_date("2026-05-08") == dt.date(2026, 5, 8)
+    assert parse_datetime("2026-05-08T10:00:00") == dt.datetime(2026, 5, 8, 10, 0)
+    assert parse_datetime_or_none("") is None
+    assert parse_datetime_or_none("   ") is None
+    assert parse_datetime_or_none("2026-05-08T09:55:00") == dt.datetime(
+        2026, 5, 8, 9, 55
+    )
+
+
+@pytest.mark.parametrize(
+    ("parser", "value"),
+    [
+        (parse_date, "2026-99-99"),
+        (parse_datetime, "not-a-datetime"),
+        (parse_datetime_or_none, "not-a-datetime"),
+        (parse_int_or_none, "12.5"),
+        (parse_float_or_none, "not-a-number"),
+    ],
+)
+def test_invalid_date_datetime_and_numeric_inputs_raise_value_error(parser, value):
+    with pytest.raises(ValueError):
+        parser(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", None),
+        ("   ", None),
+        ("false", False),
+        ("FALSE", False),
+        ("72", 72),
+        ("0.1", 0.1),
+        ("fixture", "fixture"),
+    ],
+)
+def test_parse_feature_value_coerces_supported_scalar_values(value, expected):
+    assert parse_feature_value(value) == expected
+
+
 def test_parse_race_row_builds_race_schema():
     race = parse_race_row(
         {
@@ -68,6 +120,30 @@ def test_parse_race_row_builds_race_schema():
     assert race.start_time == dt.datetime(2026, 5, 8, 10, 0)
     assert race.field_size == 2
     assert race.grade is None
+
+
+def test_parse_race_row_defaults_blank_enum_fields_to_unknown():
+    race = parse_race_row(
+        {
+            "race_id": "202605080101",
+            "race_date": "2026-05-08",
+            "venue": "Tokyo",
+            "race_number": "1",
+            "name": "Fixture Sprint",
+            "surface": "   ",
+            "distance_m": "1200",
+            "direction": "   ",
+            "track_condition": "   ",
+            "weather": "Sunny",
+            "grade": "",
+            "start_time": "2026-05-08T10:00:00",
+            "field_size": "2",
+        }
+    )
+
+    assert race.surface == Surface.UNKNOWN
+    assert race.direction == CourseDirection.UNKNOWN
+    assert race.track_condition == TrackCondition.UNKNOWN
 
 
 def test_parse_entry_row_builds_entry_schema():

@@ -67,6 +67,10 @@ def parse_datetime_or_none(value: str | None) -> datetime | None:
     return datetime.fromisoformat(normalized) if normalized else None
 
 
+def _parse_enum_value(value: str | None, default: str) -> str:
+    return (value or "").strip() or default
+
+
 def parse_race_row(row: Mapping[str, str]) -> Race:
     return Race(
         race_id=RaceId(row["race_id"]),
@@ -74,11 +78,13 @@ def parse_race_row(row: Mapping[str, str]) -> Race:
         venue=row["venue"],
         race_number=int(row["race_number"]),
         name=parse_str_or_none(row.get("name")),
-        surface=Surface(row.get("surface") or Surface.UNKNOWN.value),
+        surface=Surface(_parse_enum_value(row.get("surface"), Surface.UNKNOWN.value)),
         distance_m=int(row["distance_m"]),
-        direction=CourseDirection(row.get("direction") or CourseDirection.UNKNOWN.value),
+        direction=CourseDirection(
+            _parse_enum_value(row.get("direction"), CourseDirection.UNKNOWN.value)
+        ),
         track_condition=TrackCondition(
-            row.get("track_condition") or TrackCondition.UNKNOWN.value
+            _parse_enum_value(row.get("track_condition"), TrackCondition.UNKNOWN.value)
         ),
         weather=parse_str_or_none(row.get("weather")),
         grade=parse_str_or_none(row.get("grade")),
