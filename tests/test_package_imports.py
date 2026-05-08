@@ -34,3 +34,10 @@ def test_pipeline_imports():
 
     assert ReplayResult.__name__ == "ReplayResult"
     assert callable(run_market_replay)
+
+
+def test_jravan_ingestion_helpers_import():
+    from horse_lab.data.jravan import JvDataRecord, parse_jvdata_record
+
+    assert JvDataRecord.__name__ == "JvDataRecord"
+    assert callable(parse_jvdata_record)

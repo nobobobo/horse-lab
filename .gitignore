@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Real racing data can contain licensed/vendor data and should stay local.
+data/raw/
+data/interim/
+data/processed/

@@ -107,3 +107,11 @@ The first historical replay layer uses local CSV fixtures and read-only CSV repo
 Replay uses the latest per-runner win odds at or before `as_of`, which is point-in-time safe. It is not yet a coherent same-timestamp tote snapshot selector.
 
 JRA-VAN Data Lab. remains the intended production source for JRA data. Future JRA-VAN adapters should implement the same repository protocols so modeling and backtesting logic do not change when the data source changes.
+
+## Planned JRA-VAN Ingest Boundary
+
+JRA-VAN JV-Link should run in a separate Windows environment and export raw JV-Data dumps or normalized staging files. The macOS/Linux Python code owns validation, parsing, and conversion into the canonical `Race`, `Entry`, `OddsQuote`, `Result`, and `FeatureRow` schemas.
+
+- `horse_lab.data.jravan` contains platform-independent raw record helpers for JV-Data text dumps.
+- `data/raw/`, `data/interim/`, and `data/processed/` are ignored by git because real vendor data should stay local.
+- Web scraping remains a fallback, not the primary ingestion path, because stable point-in-time odds snapshots matter more than quick page extraction.
