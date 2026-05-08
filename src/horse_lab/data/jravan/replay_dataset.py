@@ -21,6 +21,10 @@ from horse_lab.data.jravan.exporters import (
     write_races_csv,
     write_results_csv,
 )
+from horse_lab.features import (
+    PAST_PERFORMANCE_FEATURE_NAMES,
+    build_past_performance_features,
+)
 from horse_lab.schemas import (
     BetType,
     Entry,
@@ -48,8 +52,23 @@ FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("gate_number"),
     FeatureName("carried_weight_kg"),
     FeatureName("age"),
+    FeatureName("sex"),
+    FeatureName("jockey_id"),
+    FeatureName("trainer_id"),
     FeatureName("body_weight_kg"),
+    FeatureName("body_weight_diff_kg"),
+    FeatureName("entry_win_odds"),
+    FeatureName("entry_popularity_rank"),
+    FeatureName("race_venue"),
+    FeatureName("race_surface"),
+    FeatureName("race_distance_m"),
+    FeatureName("race_direction"),
+    FeatureName("race_track_condition"),
+    FeatureName("race_weather"),
+    FeatureName("race_grade"),
+    FeatureName("race_field_size"),
     FeatureName("starter"),
+    *PAST_PERFORMANCE_FEATURE_NAMES,
 )
 FEATURE_CSV_FIELDS: tuple[str, ...] = FEATURE_CSV_BASE_FIELDS + tuple(
     f"feature__{name}" for name in FEATURE_NAMES
@@ -125,9 +144,10 @@ def build_replay_dataset_from_staging(
     )
 
     selected_races: list[Race] = []
+    selected_entries: list[Entry] = []
     selected_results: list[Result] = []
     selected_odds: list[OddsQuote] = []
-    feature_rows: list[FeatureRow] = []
+    entry_feature_rows: list[FeatureRow] = []
     skipped_races: list[SkippedReplayRace] = []
 
     for race in sorted(
@@ -168,17 +188,40 @@ def build_replay_dataset_from_staging(
         race_feature_as_of = max(
             odds_by_runner[runner_id].captured_at for runner_id in entry_runner_ids
         )
-        selected_races.append(replace(race, field_size=len(race_entries)))
+        selected_race = replace(race, field_size=len(race_entries))
+        selected_races.append(selected_race)
         for entry in sorted(race_entries, key=lambda item: item.horse_number):
+            selected_entries.append(entry)
             selected_results.append(result_by_runner[entry.runner_id])
             selected_odds.append(odds_by_runner[entry.runner_id])
-            feature_rows.append(
+            entry_feature_rows.append(
                 _feature_row_from_entry(
                     entry,
+                    race=selected_race,
                     as_of=race_feature_as_of,
                     feature_version=feature_version,
                 )
             )
+
+    past_features_by_runner = {
+        row.runner_id: row
+        for row in build_past_performance_features(
+            entries=entries,
+            races=races,
+            results=results,
+            odds=odds,
+            target_entries=selected_entries,
+            target_races=selected_races,
+            feature_version=feature_version,
+        )
+    }
+    feature_rows = tuple(
+        _merge_feature_rows(
+            row,
+            past_features_by_runner.get(row.runner_id),
+        )
+        for row in entry_feature_rows
+    )
 
     csv_paths = {
         "races": target / "races.csv",
@@ -322,6 +365,7 @@ def _complete_replay_skip_reason(
 def _feature_row_from_entry(
     entry: Entry,
     *,
+    race: Race,
     as_of: datetime,
     feature_version: str,
 ) -> FeatureRow:
@@ -335,9 +379,45 @@ def _feature_row_from_entry(
             FeatureName("gate_number"): entry.gate_number,
             FeatureName("carried_weight_kg"): entry.carried_weight_kg,
             FeatureName("age"): entry.age,
+            FeatureName("sex"): entry.metadata.get("sex"),
+            FeatureName("jockey_id"): str(entry.jockey_id)
+            if entry.jockey_id is not None
+            else None,
+            FeatureName("trainer_id"): str(entry.trainer_id)
+            if entry.trainer_id is not None
+            else None,
             FeatureName("body_weight_kg"): entry.body_weight_kg,
+            FeatureName("body_weight_diff_kg"): entry.body_weight_diff_kg,
+            FeatureName("entry_win_odds"): entry.metadata.get("entry_win_odds"),
+            FeatureName("entry_popularity_rank"): entry.metadata.get(
+                "entry_popularity_rank"
+            ),
+            FeatureName("race_venue"): race.venue,
+            FeatureName("race_surface"): race.surface.value,
+            FeatureName("race_distance_m"): race.distance_m,
+            FeatureName("race_direction"): race.direction.value,
+            FeatureName("race_track_condition"): race.track_condition.value,
+            FeatureName("race_weather"): race.weather,
+            FeatureName("race_grade"): race.grade,
+            FeatureName("race_field_size"): race.field_size,
             FeatureName("starter"): True,
         },
+    )
+
+
+def _merge_feature_rows(
+    base: FeatureRow,
+    extra: FeatureRow | None,
+) -> FeatureRow:
+    if extra is None:
+        return base
+    return FeatureRow(
+        race_id=base.race_id,
+        runner_id=base.runner_id,
+        as_of=base.as_of,
+        feature_version=base.feature_version,
+        values={**base.values, **extra.values},
+        metadata=base.metadata,
     )
 
 

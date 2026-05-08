@@ -30,15 +30,20 @@ from horse_lab.schemas import (
 
 
 def _race(race_id: str, *, field_size: int = 2) -> Race:
+    race_date = dt.date(
+        int(race_id[0:4]),
+        int(race_id[4:6]),
+        int(race_id[6:8]),
+    )
     return Race(
         race_id=RaceId(race_id),
-        race_date=dt.date(2026, 5, 8),
+        race_date=race_date,
         venue="Tokyo",
         race_number=int(race_id[-2:]),
         name="Fixture",
         surface=Surface.TURF,
         distance_m=1600,
-        start_time=dt.datetime(2026, 5, 8, 10, 0),
+        start_time=dt.datetime.combine(race_date, dt.time(10, 0)),
         field_size=field_size,
     )
 
@@ -173,6 +178,10 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     assert len(features) == 2
     assert {row.feature_version for row in features} == {"fixture-replay-v1"}
     assert features[0].values[FeatureName("horse_number")] == 1
+    assert features[0].values[FeatureName("race_surface")] == "turf"
+    assert features[0].values[FeatureName("race_distance_m")] == 1600
+    assert features[0].values[FeatureName("race_field_size")] == 2
+    assert features[0].values[FeatureName("past_run_count")] == 0
     assert features[0].values[FeatureName("starter")] is True
     assert {
         (quote.runner_id, quote.bet_type, quote.odds) for quote in odds
@@ -207,6 +216,38 @@ def test_build_replay_dataset_respects_max_odds_captured_at(tmp_path):
         (RunnerId("2026050805010101-01"), 4.0),
         (RunnerId("2026050805010101-02"), 2.5),
     }
+
+
+def test_build_replay_dataset_adds_past_performance_features(tmp_path):
+    staging_dir = tmp_path / "staging"
+    output_dir = tmp_path / "replay"
+    race1 = "2026050105010101"
+    race2 = "2026050805010102"
+    write_staging_csvs(
+        staging_dir,
+        races=[_race(race1, field_size=1), _race(race2, field_size=1)],
+        entries=[_entry(race1, 1), _entry(race2, 1)],
+        results=[_result(race1, 1, 1), _result(race2, 1, 2)],
+        odds=[
+            _quote(race1, 1, 4.0, dt.datetime(2026, 5, 1, 9, 50)),
+            _quote(race2, 1, 3.0, dt.datetime(2026, 5, 8, 9, 50)),
+        ],
+    )
+
+    build_replay_dataset_from_staging(staging_dir, output_dir)
+
+    features = [
+        parse_feature_row(row) for row in read_csv_rows(output_dir / "features.csv")
+    ]
+    by_runner = {row.runner_id: row for row in features}
+
+    first_runner = by_runner[RunnerId("2026050105010101-01")]
+    second_runner = by_runner[RunnerId("2026050805010102-01")]
+
+    assert first_runner.values[FeatureName("past_run_count")] == 0
+    assert second_runner.values[FeatureName("past_run_count")] == 1
+    assert second_runner.values[FeatureName("last_finish_position")] == 1
+    assert second_runner.values[FeatureName("last_odds")] == 4.0
 
 
 def test_jravan_build_replay_dataset_cli_writes_json_summary(tmp_path, capsys):

@@ -88,8 +88,12 @@ def _se_record(**overrides: str):
         "gate_number": "3",
         "horse_id": "2020123456",
         "horse_name": "テストホース",
+        "horse_symbol_code": "01",
         "sex_code": "2",
+        "breed_code": "1",
+        "coat_color_code": "03",
         "age": "04",
+        "trainer_affiliation_code": "1",
         "trainer_id": "04050",
         "jockey_id": "01020",
         "carried_weight": "565",
@@ -100,6 +104,8 @@ def _se_record(**overrides: str):
         "finish_position": "01",
         "is_dead_heat": "1",
         "final_time_seconds": "0705",
+        "win_odds": "0035",
+        "popularity_rank": "02",
         "prize_jpy_x100": "00100000",
     }
     values.update(overrides)
@@ -302,7 +308,14 @@ def test_map_se_record_to_entry_maps_minimal_entry_schema():
     assert entry.age == 4
     assert entry.is_scratched is False
     assert entry.metadata["horse_name"] == "テストホース"
+    assert entry.metadata["horse_symbol_code"] == "01"
+    assert entry.metadata["sex"] == "female"
     assert entry.metadata["sex_code"] == "2"
+    assert entry.metadata["breed_code"] == "1"
+    assert entry.metadata["coat_color_code"] == "03"
+    assert entry.metadata["trainer_affiliation_code"] == "1"
+    assert entry.metadata["entry_win_odds"] == 3.5
+    assert entry.metadata["entry_popularity_rank"] == 2
     assert entry.metadata["data_kubun"] == "7"
 
 

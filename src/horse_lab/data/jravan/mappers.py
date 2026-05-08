@@ -22,6 +22,7 @@ from horse_lab.schemas import (
     RaceId,
     Result,
     RunnerId,
+    Sex,
     Surface,
     TrackCondition,
 )
@@ -113,6 +114,12 @@ WEATHER_BY_CODE = {
     "6": "light_snow",
 }
 
+SEX_BY_CODE = {
+    "1": Sex.MALE,
+    "2": Sex.FEMALE,
+    "3": Sex.GELDING,
+}
+
 
 def build_jravan_race_id(fields: Mapping[str, str]) -> RaceId:
     race_date = _parse_jravan_race_id_date(_require(fields, "race_date"))
@@ -189,6 +196,8 @@ def map_se_record_to_entry(record: JvDataRecord) -> Entry:
     fields = parse_minimal_se_fields(record)
     jockey_id = _optional_str(fields.get("jockey_id"))
     trainer_id = _optional_str(fields.get("trainer_id"))
+    sex_code = _optional_str(fields.get("sex_code"))
+    entry_win_odds = _parse_o1_odds_or_none(fields.get("win_odds", ""))
 
     return Entry(
         runner_id=build_jravan_runner_id(fields),
@@ -213,7 +222,19 @@ def map_se_record_to_entry(record: JvDataRecord) -> Entry:
             "source": "jravan_minimal",
             "data_kubun": fields.get("data_kubun", ""),
             "horse_name": _optional_str(fields.get("horse_name")),
-            "sex_code": _optional_str(fields.get("sex_code")),
+            "horse_symbol_code": _optional_str(fields.get("horse_symbol_code")),
+            "sex": _sex_value_from_code(sex_code),
+            "sex_code": sex_code,
+            "breed_code": _optional_str(fields.get("breed_code")),
+            "coat_color_code": _optional_str(fields.get("coat_color_code")),
+            "trainer_affiliation_code": _optional_str(
+                fields.get("trainer_affiliation_code")
+            ),
+            "entry_win_odds": entry_win_odds,
+            "entry_popularity_rank": _parse_optional_int(
+                fields.get("popularity_rank"),
+                "popularity_rank",
+            ),
         },
     )
 
@@ -343,6 +364,11 @@ def _parse_o1_odds_or_none(value: str) -> float | None:
         raise ValueError(f"Invalid O1 win odds: {value!r}")
     odds = int(normalized) / 10.0
     return odds if odds > 1.0 else None
+
+
+def _sex_value_from_code(code: str | None) -> str | None:
+    sex = SEX_BY_CODE.get(code or "")
+    return sex.value if sex is not None else _unknown_or_none(code)
 
 
 def _parse_o1_rank_or_none(value: str) -> int | None:

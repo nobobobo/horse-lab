@@ -97,6 +97,8 @@ def _se_record(**overrides: str):
         "finish_position": "01",
         "is_dead_heat": "1",
         "final_time_seconds": "0705",
+        "win_odds": "0035",
+        "popularity_rank": "02",
         "prize_jpy_x100": "00100000",
     }
     values.update(overrides)
@@ -164,6 +166,10 @@ def test_jravan_mapped_objects_round_trip_through_staging_csvs(tmp_path):
     assert parsed_entry.horse_id == entry.horse_id
     assert parsed_entry.carried_weight_kg == 56.5
     assert parsed_entry.body_weight_diff_kg == -8
+    assert parsed_entry.metadata["horse_name"] == "テストホース"
+    assert parsed_entry.metadata["sex"] == "female"
+    assert parsed_entry.metadata["entry_win_odds"] == 3.5
+    assert parsed_entry.metadata["entry_popularity_rank"] == 2
     assert parsed_result.runner_id == result.runner_id
     assert parsed_result.is_dead_heat is True
     assert parsed_result.final_time_seconds == 70.5
@@ -203,8 +209,10 @@ def test_csv_row_helpers_render_none_and_booleans_consistently():
     odds_row = odds_quote_to_csv_row(quote)
 
     assert entry_row["gate_number"] == ""
+    assert entry_row["horse_name"] == ""
     assert entry_row["jockey_id"] == ""
     assert entry_row["carried_weight_kg"] == ""
+    assert entry_row["entry_win_odds"] == ""
     assert entry_row["is_scratched"] == "true"
     assert result_row["finish_position"] == ""
     assert result_row["is_disqualified"] == "false"

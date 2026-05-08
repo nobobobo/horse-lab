@@ -35,11 +35,17 @@ def test_baseline_modules_import():
 
 def test_storage_and_feature_protocols_import():
     from horse_lab.data import RaceRepository, ResultRepository
-    from horse_lab.features import FeatureBuilder
+    from horse_lab.features import (
+        FeatureBuilder,
+        PastPerformanceFeatureBuilder,
+        build_past_performance_features,
+    )
 
     assert RaceRepository.__name__ == "RaceRepository"
     assert ResultRepository.__name__ == "ResultRepository"
     assert FeatureBuilder.__name__ == "FeatureBuilder"
+    assert PastPerformanceFeatureBuilder.__name__ == "PastPerformanceFeatureBuilder"
+    assert callable(build_past_performance_features)
 
 
 def test_pipeline_imports():

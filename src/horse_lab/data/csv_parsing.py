@@ -109,6 +109,24 @@ def parse_entry_row(row: Mapping[str, str]) -> Entry:
         body_weight_diff_kg=parse_int_or_none(row.get("body_weight_diff_kg")),
         age=parse_int_or_none(row.get("age")),
         is_scratched=parse_bool(row.get("is_scratched")),
+        metadata={
+            key: value
+            for key, value in {
+                "horse_name": parse_str_or_none(row.get("horse_name")),
+                "sex": parse_str_or_none(row.get("sex")),
+                "sex_code": parse_str_or_none(row.get("sex_code")),
+                "breed_code": parse_str_or_none(row.get("breed_code")),
+                "coat_color_code": parse_str_or_none(row.get("coat_color_code")),
+                "trainer_affiliation_code": parse_str_or_none(
+                    row.get("trainer_affiliation_code")
+                ),
+                "entry_win_odds": parse_float_or_none(row.get("entry_win_odds")),
+                "entry_popularity_rank": parse_int_or_none(
+                    row.get("entry_popularity_rank")
+                ),
+            }.items()
+            if value is not None
+        },
     )
 
 

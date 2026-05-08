@@ -31,6 +31,7 @@ ENTRY_CSV_FIELDS: tuple[str, ...] = (
     "runner_id",
     "race_id",
     "horse_id",
+    "horse_name",
     "horse_number",
     "gate_number",
     "jockey_id",
@@ -39,6 +40,13 @@ ENTRY_CSV_FIELDS: tuple[str, ...] = (
     "body_weight_kg",
     "body_weight_diff_kg",
     "age",
+    "sex",
+    "sex_code",
+    "breed_code",
+    "coat_color_code",
+    "trainer_affiliation_code",
+    "entry_win_odds",
+    "entry_popularity_rank",
     "is_scratched",
 )
 
@@ -87,6 +95,7 @@ def entry_to_csv_row(entry: Entry) -> dict[str, str]:
         "runner_id": _render_csv_value(entry.runner_id),
         "race_id": _render_csv_value(entry.race_id),
         "horse_id": _render_csv_value(entry.horse_id),
+        "horse_name": _render_csv_value(entry.metadata.get("horse_name")),
         "horse_number": _render_csv_value(entry.horse_number),
         "gate_number": _render_csv_value(entry.gate_number),
         "jockey_id": _render_csv_value(entry.jockey_id),
@@ -95,6 +104,17 @@ def entry_to_csv_row(entry: Entry) -> dict[str, str]:
         "body_weight_kg": _render_csv_value(entry.body_weight_kg),
         "body_weight_diff_kg": _render_csv_value(entry.body_weight_diff_kg),
         "age": _render_csv_value(entry.age),
+        "sex": _render_csv_value(entry.metadata.get("sex")),
+        "sex_code": _render_csv_value(entry.metadata.get("sex_code")),
+        "breed_code": _render_csv_value(entry.metadata.get("breed_code")),
+        "coat_color_code": _render_csv_value(entry.metadata.get("coat_color_code")),
+        "trainer_affiliation_code": _render_csv_value(
+            entry.metadata.get("trainer_affiliation_code")
+        ),
+        "entry_win_odds": _render_csv_value(entry.metadata.get("entry_win_odds")),
+        "entry_popularity_rank": _render_csv_value(
+            entry.metadata.get("entry_popularity_rank")
+        ),
         "is_scratched": _render_csv_value(entry.is_scratched),
     }
 

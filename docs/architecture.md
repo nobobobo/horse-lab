@@ -259,3 +259,13 @@ market baseline の次に学習モデルを作るには、単勝 odds と結果�
    - 血統は距離・馬場適性モデルに有効。調教/コメントは後段の text/Transformer model 用で、MVP 後でよい。
 
 大規模データは最初から 2020 年以降を全部 ingest する必要はない。まず 2-3 か月分で pipeline と feature correctness を固め、その後 1 年、3 年、5 年へ広げる。モデル学習に入る目安は、最低でも数千レース、できれば数万 runner row。LightGBM baseline では 1-2 年分から始め、validation は必ず時系列 split にする。
+
+## 実装済み学習特徴量の第一段
+
+LightGBM baseline に向けた最初の feature engineering として、entry detail と過去走履歴を追加した。
+
+- `entries.csv` は `horse_name`、`sex`、`breed_code`、`coat_color_code`、`trainer_affiliation_code`、`entry_win_odds`、`entry_popularity_rank` を保持する。
+- `jravan-build-replay-dataset` の `features.csv` は entry detail、race condition、past performance を同じ runner-level feature row にまとめる。
+- `horse_lab.features.PastPerformanceFeatureBuilder` は `entries + races + results + odds` を `horse_id` で結合し、対象 race より前の走歴だけを使って point-in-time safe な rolling features を作る。
+- 最初の過去走特徴量は `past_run_count`、`days_since_last_run`、`avg_finish_position_last3`、`best_finish_position_last3`、`win_rate_last5`、`avg_distance_m_last3`、`same_surface_run_count`、`same_surface_win_rate`、`avg_odds_last3`、`last_finish_position`、`last_odds`。
+- odds は各過去走の発走前に取得された単勝 odds の最新値だけを使う。対象 race 前に存在していても、過去走の発走後に取得された odds は使わない。
