@@ -149,6 +149,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     market_replay_parser.set_defaults(handler=_handle_market_replay)
 
+    daily_replay_parser = subparsers.add_parser(
+        "jravan-daily-market-replay",
+        help="Run the local daily JRA-VAN raw-to-market-replay workflow.",
+    )
+    daily_replay_parser.add_argument("run_id")
+    daily_replay_parser.add_argument("--workspace-root", type=Path, default=Path("data"))
+    daily_replay_parser.add_argument("--start-date", type=_parse_cli_date, required=True)
+    daily_replay_parser.add_argument("--end-date", type=_parse_cli_date, required=True)
+    daily_replay_parser.add_argument("--as-of", type=_parse_cli_datetime, required=True)
+    daily_replay_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+    )
+    daily_replay_parser.add_argument(
+        "--initial-bankroll-jpy",
+        type=int,
+        default=100_000,
+    )
+    daily_replay_parser.add_argument("--bucket", default=DEFAULT_JRAVAN_S3_BUCKET)
+    daily_replay_parser.add_argument("--prefix", default=DEFAULT_JRAVAN_S3_RAW_PREFIX)
+    daily_replay_parser.add_argument("--aws-cli", default="aws")
+    daily_replay_parser.add_argument(
+        "--skip-s3-pull",
+        action="store_true",
+        help="Use an existing local raw directory instead of syncing from S3.",
+    )
+    daily_replay_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Return planned paths and commands without executing the workflow.",
+    )
+    daily_replay_parser.set_defaults(handler=_handle_jravan_daily_market_replay)
+
     preview_parser = subparsers.add_parser(
         "jravan-preview",
         help="Write a UTF-8 inspection copy of a CP932 JV-Data raw dump.",
@@ -285,6 +318,109 @@ def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, object]:
+    paths = _daily_paths(args.workspace_root, args.run_id)
+    s3_plan = build_jravan_s3_raw_sync_plan(
+        run_id=args.run_id,
+        local_raw_root=paths["local_raw_root"],
+        bucket=args.bucket,
+        prefix=args.prefix,
+        aws_cli=args.aws_cli,
+    )
+
+    summary: dict[str, object] = {
+        "run_id": args.run_id,
+        "workspace_root": str(args.workspace_root),
+        "paths": {name: str(path) for name, path in paths.items()},
+        "s3_pull": {
+            "skipped": args.skip_s3_pull,
+            "s3_uri": s3_plan.s3_uri,
+            "local_dir": str(s3_plan.local_dir),
+            "command": render_sync_command(s3_plan.command),
+            "executed": False,
+            "returncode": None,
+        },
+        "dry_run": args.dry_run,
+    }
+
+    if args.dry_run:
+        return summary
+
+    if not args.skip_s3_pull:
+        s3_result = sync_jravan_raw_from_s3(s3_plan)
+        summary["s3_pull"] = {
+            "skipped": False,
+            "s3_uri": s3_plan.s3_uri,
+            "local_dir": str(s3_plan.local_dir),
+            "command": render_sync_command(s3_plan.command),
+            "executed": s3_result.executed,
+            "returncode": s3_result.returncode,
+        }
+
+    ingest_export = ingest_jvdata_directory_to_staging(
+        paths["raw_dir"],
+        paths["staging_dir"],
+    )
+    summary["ingest"] = {
+        "counts": {
+            "races": len(ingest_export.dataset.races),
+            "entries": len(ingest_export.dataset.entries),
+            "results": len(ingest_export.dataset.results),
+            "odds": len(ingest_export.dataset.odds),
+            "skipped_records": len(ingest_export.dataset.skipped_records),
+        },
+        "csv_paths": {
+            name: str(path) for name, path in ingest_export.csv_paths.items()
+        },
+    }
+
+    replay_export = build_replay_dataset_from_staging(
+        paths["staging_dir"],
+        paths["replay_dir"],
+        feature_version=args.feature_version,
+    )
+    summary["replay_dataset"] = {
+        "csv_paths": {
+            name: str(path) for name, path in replay_export.csv_paths.items()
+        },
+        "report_path": str(replay_export.report_path),
+        "report": replay_dataset_report_to_dict(replay_export.report),
+    }
+
+    replay_result = run_market_replay(
+        race_repository=CsvRaceRepository(paths["replay_dir"] / "races.csv"),
+        odds_repository=CsvOddsRepository(paths["replay_dir"] / "odds.csv"),
+        result_repository=CsvResultRepository(paths["replay_dir"] / "results.csv"),
+        feature_repository=CsvFeatureRepository(paths["replay_dir"] / "features.csv"),
+        start_date=args.start_date,
+        end_date=args.end_date,
+        as_of=args.as_of,
+        feature_version=args.feature_version,
+        initial_bankroll_jpy=args.initial_bankroll_jpy,
+    )
+    summary["market_replay"] = {
+        "start_date": args.start_date.isoformat(),
+        "end_date": args.end_date.isoformat(),
+        "as_of": args.as_of.isoformat(),
+        "feature_version": args.feature_version,
+        "counts": {
+            "races": len(replay_result.races),
+            "feature_rows": len(replay_result.feature_rows),
+            "odds": len(replay_result.odds),
+            "results": len(replay_result.results),
+            "predictions": len(replay_result.predictions),
+            "bet_records": len(replay_result.backtest_result.records),
+        },
+        "backtest": _performance_summary_to_dict(replay_result.summary),
+        "probability": _probability_summary_to_dict(
+            replay_result.probability_summary
+        ),
+    }
+    _write_json_file(paths["market_report_path"], summary)
+    summary["report_path"] = str(paths["market_report_path"])
+    return summary
+
+
 def _handle_jravan_preview(args: argparse.Namespace) -> dict[str, object]:
     lines_written = write_jvdata_utf8_preview(
         args.raw_path,
@@ -297,6 +433,22 @@ def _handle_jravan_preview(args: argparse.Namespace) -> dict[str, object]:
         "output_path": str(args.output_path),
         "encoding": args.encoding,
         "lines_written": lines_written,
+    }
+
+
+def _daily_paths(workspace_root: Path, run_id: str) -> dict[str, Path]:
+    return {
+        "local_raw_root": workspace_root / "raw" / "jravan",
+        "raw_dir": workspace_root / "raw" / "jravan" / run_id,
+        "staging_dir": workspace_root / "interim" / "jravan" / run_id,
+        "replay_dir": workspace_root / "processed" / "jravan" / run_id / "replay",
+        "market_report_path": (
+            workspace_root
+            / "processed"
+            / "jravan"
+            / run_id
+            / "market_replay_report.json"
+        ),
     }
 
 
@@ -353,6 +505,14 @@ def _probability_summary_to_dict(summary: ProbabilitySummary) -> dict[str, objec
             for calibration_bin in summary.bins
         ],
     }
+
+
+def _write_json_file(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

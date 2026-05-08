@@ -5,6 +5,7 @@ from horse_lab.cli import main
 from horse_lab.data.csv_parsing import parse_entry_row, parse_race_row, read_csv_rows
 from horse_lab.data.jravan import (
     FixedWidthField,
+    JRAVAN_MINIMAL_O1_FIELDS,
     JRAVAN_MINIMAL_RA_FIELDS,
     JRAVAN_MINIMAL_SE_FIELDS,
 )
@@ -28,10 +29,8 @@ def _fixed_width_text(
     return bytes(raw).decode("cp932")
 
 
-def _ra_text() -> str:
-    return _fixed_width_text(
-        JRAVAN_MINIMAL_RA_FIELDS,
-        {
+def _ra_text(**overrides: str) -> str:
+    values = {
             "record_type": "RA",
             "data_kubun": "7",
             "data_created_date": "20260507",
@@ -50,14 +49,13 @@ def _ra_text() -> str:
             "start_time": "1005",
             "registered_horse_count": "16",
             "starter_count": "16",
-        },
-    )
+    }
+    values.update(overrides)
+    return _fixed_width_text(JRAVAN_MINIMAL_RA_FIELDS, values)
 
 
-def _se_text() -> str:
-    return _fixed_width_text(
-        JRAVAN_MINIMAL_SE_FIELDS,
-        {
+def _se_text(**overrides: str) -> str:
+    values = {
             "record_type": "SE",
             "data_kubun": "7",
             "data_created_date": "20260507",
@@ -83,8 +81,41 @@ def _se_text() -> str:
             "is_dead_heat": "0",
             "final_time_seconds": "0705",
             "prize_jpy_x100": "00100000",
-        },
+    }
+    values.update(overrides)
+    return _fixed_width_text(JRAVAN_MINIMAL_SE_FIELDS, values)
+
+
+def _o1_text(**overrides: str) -> str:
+    values = {
+        "record_type": "O1",
+        "data_kubun": "7",
+        "data_created_date": "20260508",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "captured_month_day_time": "05080950",
+        "registered_horse_count": "01",
+        "starter_count": "01",
+        "win_sale_flag": "7",
+        "place_sale_flag": "7",
+        "bracket_quinella_sale_flag": "7",
+        "place_payout_key": "3",
+        "win_odds_entries": _o1_win_entries(("07", "0035", "01")),
+        "win_pool_size_jpy_x100": "0000012345",
+    }
+    values.update(overrides)
+    return _fixed_width_text(JRAVAN_MINIMAL_O1_FIELDS, values)
+
+
+def _o1_win_entries(*entries: tuple[str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse_number:>2}{odds:>4}{popularity_rank:>2}"
+        for horse_number, odds, popularity_rank in entries
     )
+    return encoded.ljust(224)
 
 
 def _write_raw_file(path: Path, *lines: str) -> None:
@@ -218,3 +249,86 @@ def test_market_replay_cli_runs_replay_ready_csv_dataset(capsys):
     assert summary["backtest"]["final_bankroll_jpy"] == 108_000
     assert summary["probability"]["observations"] == 4
     assert summary["probability"]["brier_score"] > 0.0
+
+
+def test_jravan_daily_market_replay_cli_runs_local_raw_workflow(
+    tmp_path: Path,
+    capsys,
+):
+    run_id = "daily_fixture"
+    raw_dir = tmp_path / "raw" / "jravan" / run_id
+    raw_dir.mkdir(parents=True)
+    _write_raw_file(
+        raw_dir / "RACE_20260508.txt",
+        _ra_text(registered_horse_count="01", starter_count="01"),
+        _se_text(),
+        _o1_text(),
+    )
+
+    assert (
+        main(
+            [
+                "jravan-daily-market-replay",
+                run_id,
+                "--workspace-root",
+                str(tmp_path),
+                "--start-date",
+                "2026-05-08",
+                "--end-date",
+                "2026-05-08",
+                "--as-of",
+                "2026-05-08T23:59:00",
+                "--skip-s3-pull",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["s3_pull"]["skipped"] is True
+    assert summary["ingest"]["counts"] == {
+        "races": 1,
+        "entries": 1,
+        "results": 1,
+        "odds": 1,
+        "skipped_records": 0,
+    }
+    assert summary["replay_dataset"]["report"]["output_counts"] == {
+        "races": 1,
+        "feature_rows": 1,
+        "results": 1,
+        "odds": 1,
+    }
+    assert summary["market_replay"]["counts"]["predictions"] == 1
+    assert summary["market_replay"]["probability"]["observations"] == 1
+    assert Path(summary["report_path"]).exists()
+
+
+def test_jravan_daily_market_replay_cli_dry_run_does_not_create_outputs(
+    tmp_path: Path,
+    capsys,
+):
+    assert (
+        main(
+            [
+                "jravan-daily-market-replay",
+                "daily_fixture",
+                "--workspace-root",
+                str(tmp_path),
+                "--start-date",
+                "2026-05-08",
+                "--end-date",
+                "2026-05-08",
+                "--as-of",
+                "2026-05-08T23:59:00",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["dry_run"] is True
+    assert "ingest" not in summary
+    assert "market_replay" not in summary
+    assert not (tmp_path / "processed").exists()

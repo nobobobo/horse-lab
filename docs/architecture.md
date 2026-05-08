@@ -177,6 +177,7 @@ Primary path:
 - `horse-lab jravan-ingest-dir data/raw/jravan data/interim/jravan/YYYYMMDD`: 複数 raw dump を 1 つの staging dataset に結合する。
 - `horse-lab jravan-build-replay-dataset data/interim/jravan/YYYYMMDD data/processed/jravan/YYYYMMDD/replay`: staging CSV から complete-race replay dataset を作る。
 - `horse-lab market-replay data/processed/jravan/YYYYMMDD/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS`: market baseline、Kelly backtest、probability calibration diagnostics を実行する。
+- `horse-lab jravan-daily-market-replay <run_id> --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS`: S3 raw sync、staging ingest、replay dataset build、market replay、report 出力を 1 つの日次 smoke workflow として実行する。ローカルに raw がある場合は `--skip-s3-pull` を使う。
 - `Invoke-JvLinkRtRaceList.ps1`: 複数 race key の realtime odds を per-race raw dump directory に収集する。
 
 Windows worker の運用方針:
@@ -213,6 +214,18 @@ horse-lab market-replay \
   --end-date YYYY-MM-DD \
   --as-of YYYY-MM-DDTHH:MM:SS
 ```
+
+日次 smoke は上記の分解コマンドを 1 つにまとめた以下のコマンドでも実行できる。
+
+```bash
+horse-lab jravan-daily-market-replay \
+  <run_id> \
+  --start-date YYYY-MM-DD \
+  --end-date YYYY-MM-DD \
+  --as-of YYYY-MM-DDTHH:MM:SS
+```
+
+出力 report は `data/processed/jravan/<run_id>/market_replay_report.json` に保存する。Windows 側は raw を S3 に即 upload して削除し、Mac 側はこの日次 command で S3 から必要な run だけを取得して検証する。
 
 market baseline は同じ market odds から作った確率を同じ market odds に対して評価するため、positive edge が出ず `bet_records=0` になることがある。この場合でも `market-replay` は `log_loss`、`brier_score`、calibration bins を返す。これにより、非 market alpha model を追加する前に、replay loop の data integrity と probability quality を検証できる。
 
