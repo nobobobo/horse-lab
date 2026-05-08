@@ -27,3 +27,10 @@ def test_storage_and_feature_protocols_import():
     assert RaceRepository.__name__ == "RaceRepository"
     assert ResultRepository.__name__ == "ResultRepository"
     assert FeatureBuilder.__name__ == "FeatureBuilder"
+
+
+def test_pipeline_imports():
+    from horse_lab.pipelines import ReplayResult, run_market_replay
+
+    assert ReplayResult.__name__ == "ReplayResult"
+    assert callable(run_market_replay)
