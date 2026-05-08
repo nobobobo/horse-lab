@@ -70,6 +70,10 @@ def build_jravan_race_id(fields: Mapping[str, str]) -> RaceId:
     kaiji = _require_two_digit_component(fields, "kaiji")
     nichiji = _require_two_digit_component(fields, "nichiji")
     race_number = _require_two_digit_component(fields, "race_number")
+    if _parse_int(race_number, "race_number") <= 0:
+        raise ValueError(
+            f"Invalid race_number: expected positive, got {race_number!r}"
+        )
     return RaceId(f"{race_date}{venue_code}{kaiji}{nichiji}{race_number}")
 
 
@@ -174,8 +178,11 @@ def map_se_record_to_result(record: JvDataRecord) -> Result | None:
         race_id=build_jravan_race_id(fields),
         runner_id=build_jravan_runner_id(fields),
         finish_position=finish_position,
-        is_disqualified=_parse_flag(fields.get("is_disqualified")),
-        is_dead_heat=_parse_flag(fields.get("is_dead_heat")),
+        is_disqualified=_parse_flag(
+            fields.get("is_disqualified"),
+            "is_disqualified",
+        ),
+        is_dead_heat=_parse_flag(fields.get("is_dead_heat"), "is_dead_heat"),
         final_time_seconds=_parse_deci_number(
             fields.get("final_time_seconds"),
             "final_time_seconds",
@@ -256,8 +263,13 @@ def _parse_body_weight_diff(sign: str | None, value: str | None) -> int | None:
     return -diff if (sign or "").strip() == "-" else diff
 
 
-def _parse_flag(value: str | None) -> bool:
-    return (value or "").strip().lower() in {"1", "y", "yes", "true"}
+def _parse_flag(value: str | None, field_name: str) -> bool:
+    normalized = (value or "").strip().lower()
+    if normalized in {"", "0", "n", "no", "false"}:
+        return False
+    if normalized in {"1", "y", "yes", "true"}:
+        return True
+    raise ValueError(f"Invalid flag for {field_name}: {value!r}")
 
 
 def _unknown_or_none(value: str | None) -> str | None:

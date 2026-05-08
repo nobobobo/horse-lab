@@ -159,6 +159,13 @@ def test_build_jravan_race_id_rejects_invalid_race_date():
         build_jravan_race_id(fields)
 
 
+def test_build_jravan_race_id_rejects_zero_race_number():
+    fields = parse_minimal_ra_fields(_ra_record(race_number="00"))
+
+    with pytest.raises(ValueError, match="race_number"):
+        build_jravan_race_id(fields)
+
+
 def test_map_ra_record_to_race_maps_minimal_race_schema():
     race = map_ra_record_to_race(_ra_record())
 
@@ -248,6 +255,11 @@ def test_map_se_record_to_entry_maps_minimal_entry_schema():
     assert entry.metadata["data_kubun"] == "7"
 
 
+def test_map_se_record_to_entry_rejects_zero_race_number_via_shared_race_id():
+    with pytest.raises(ValueError, match="race_number"):
+        map_se_record_to_entry(_se_record(race_number="00"))
+
+
 def test_map_se_record_to_entry_maps_blank_body_weight_diff_to_none():
     entry = map_se_record_to_entry(
         _se_record(body_weight_diff_sign="", body_weight_diff="")
@@ -278,6 +290,16 @@ def test_map_se_record_to_result_maps_populated_result_fields():
     assert result.did_win is True
 
 
+def test_map_se_record_to_result_treats_blank_result_flags_as_false():
+    result = map_se_record_to_result(
+        _se_record(is_disqualified="", is_dead_heat="")
+    )
+
+    assert result is not None
+    assert result.is_disqualified is False
+    assert result.is_dead_heat is False
+
+
 def test_map_se_record_to_result_returns_none_when_finish_position_is_blank():
     result = map_se_record_to_result(
         _se_record(
@@ -305,3 +327,9 @@ def test_map_se_record_to_result_rejects_invalid_finish_position():
 def test_map_se_record_to_result_rejects_zero_finish_position():
     with pytest.raises(ValueError, match="finish_position"):
         map_se_record_to_result(_se_record(finish_position="00"))
+
+
+@pytest.mark.parametrize("field_name", ("is_disqualified", "is_dead_heat"))
+def test_map_se_record_to_result_rejects_malformed_result_flags(field_name: str):
+    with pytest.raises(ValueError, match=field_name):
+        map_se_record_to_result(_se_record(**{field_name: "X"}))
