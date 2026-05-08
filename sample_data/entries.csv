@@ -1,0 +1,5 @@
+runner_id,race_id,horse_id,horse_number,gate_number,jockey_id,trainer_id,carried_weight_kg,body_weight_kg,body_weight_diff_kg,age,is_scratched
+202605080101-01,202605080101,horse-001,1,1,jockey-001,trainer-001,56.0,480,2,4,false
+202605080101-02,202605080101,horse-002,2,2,jockey-002,trainer-002,56.0,472,-4,5,false
+202605080102-01,202605080102,horse-003,1,1,jockey-003,trainer-003,57.0,500,0,4,false
+202605080102-02,202605080102,horse-004,2,2,jockey-004,trainer-004,55.0,458,6,3,false

@@ -1,0 +1,3 @@
+race_id,race_date,venue,race_number,name,surface,distance_m,direction,track_condition,weather,grade,start_time,field_size
+202605080101,2026-05-08,Tokyo,1,Fixture Sprint,turf,1200,left,firm,Sunny,,2026-05-08T10:00:00,2
+202605080102,2026-05-08,Tokyo,2,Fixture Mile,dirt,1600,left,good,Cloudy,,2026-05-08T11:00:00,2
