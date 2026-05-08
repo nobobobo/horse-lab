@@ -167,6 +167,8 @@ Current Windows worker probes:
 - `JvLinkDump.exe`: accumulated JV-Data via `JVOpen`, currently used for `RACE`.
 - `JvLinkRtDump.exe`: realtime JV-Data via `JVRTOpen`, currently verified for NHK Mile Cup race key `2026051005020611`.
 - Verified realtime outputs: `0B31` latest single/place/bracket odds, `0B30` all-bet odds, and `0B41` time-series single/place/bracket odds.
+- `horse-lab jravan-ingest-dir data/raw/jravan data/interim/jravan/YYYYMMDD` combines multiple raw dumps into one staging dataset.
+- `Invoke-JvLinkRtRaceList.ps1` accepts race keys and collects realtime odds for multiple races into per-race raw dump directories.
 
 Operational options for the Windows worker:
 

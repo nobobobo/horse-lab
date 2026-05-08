@@ -14,7 +14,9 @@ from horse_lab.data.jravan import (
     JRAVAN_MINIMAL_RA_FIELDS,
     JRAVAN_MINIMAL_SE_FIELDS,
     FixedWidthField,
+    ingest_jvdata_directory_to_staging,
     ingest_jvdata_file_to_staging,
+    ingest_jvdata_files_to_staging,
     map_jvdata_records,
     parse_jvdata_record,
 )
@@ -160,6 +162,57 @@ def test_ingest_jvdata_file_to_staging_maps_ra_se_and_skips_unknown_records(
     assert result.did_win is True
     assert quote.runner_id == entry.runner_id
     assert quote.odds == 3.5
+
+
+def test_ingest_jvdata_files_to_staging_combines_multiple_raw_dumps(
+    tmp_path: Path,
+):
+    race_path = tmp_path / "20260508_RACE.txt"
+    odds_path = tmp_path / "20260508_0B31_jvgets.txt"
+    _write_raw_file(race_path, _ra_text(), _se_text())
+    _write_raw_file(odds_path, _o1_text())
+
+    export = ingest_jvdata_files_to_staging(
+        [race_path, odds_path],
+        tmp_path / "staging",
+    )
+
+    assert len(export.dataset.races) == 1
+    assert len(export.dataset.entries) == 1
+    assert len(export.dataset.results) == 1
+    assert len(export.dataset.odds) == 1
+    assert read_csv_rows(export.csv_paths["odds"])[0]["odds"] == "3.5"
+
+
+def test_ingest_jvdata_directory_to_staging_scans_nested_raw_dumps(
+    tmp_path: Path,
+):
+    raw_dir = tmp_path / "raw"
+    nested_dir = raw_dir / "rt"
+    nested_dir.mkdir(parents=True)
+    _write_raw_file(raw_dir / "20260508_RACE.txt", _ra_text(), _se_text())
+    _write_raw_file(nested_dir / "20260508_0B31_jvgets.txt", _o1_text())
+    (raw_dir / "20260508_RACE.utf8.txt").write_text(
+        _ra_text(race_name="検査用プレビュー"),
+        encoding="utf-8",
+    )
+    (nested_dir / "20260508_0B31_jvgets.stdout.txt").write_text(
+        '{"outputPath":"not raw"}',
+        encoding="utf-8",
+    )
+
+    export = ingest_jvdata_directory_to_staging(raw_dir, tmp_path / "staging")
+
+    assert len(export.dataset.races) == 1
+    assert len(export.dataset.entries) == 1
+    assert len(export.dataset.results) == 1
+    assert len(export.dataset.odds) == 1
+    assert export.dataset.races[0].name == "若葉ステークス"
+
+
+def test_ingest_jvdata_directory_to_staging_rejects_empty_matches(tmp_path: Path):
+    with pytest.raises(ValueError, match="No JV-Data raw files found"):
+        ingest_jvdata_directory_to_staging(tmp_path / "missing", tmp_path / "staging")
 
 
 def test_map_jvdata_records_keeps_last_duplicate_update():

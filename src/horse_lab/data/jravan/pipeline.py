@@ -77,6 +77,63 @@ def ingest_jvdata_file_to_staging(
     return JraVanStagingExport(dataset=dataset, csv_paths=csv_paths)
 
 
+def ingest_jvdata_files_to_staging(
+    raw_paths: Iterable[Path | str],
+    staging_dir: Path | str,
+    *,
+    encoding: str = JV_DATA_ENCODING,
+    skip_unknown_records: bool = True,
+) -> JraVanStagingExport:
+    """Read multiple JV-Data text dumps and export one combined staging dataset."""
+
+    paths = tuple(Path(path) for path in raw_paths)
+    if not paths:
+        raise ValueError("At least one JV-Data raw path is required")
+
+    records: list[JvDataRecord] = []
+    for path in paths:
+        records.extend(read_jvdata_records(path, encoding=encoding))
+
+    dataset = map_jvdata_records(
+        records,
+        skip_unknown_records=skip_unknown_records,
+    )
+    csv_paths = write_staging_csvs(
+        staging_dir,
+        races=dataset.races,
+        entries=dataset.entries,
+        results=dataset.results,
+        odds=dataset.odds,
+    )
+    return JraVanStagingExport(dataset=dataset, csv_paths=csv_paths)
+
+
+def ingest_jvdata_directory_to_staging(
+    raw_dir: Path | str,
+    staging_dir: Path | str,
+    *,
+    pattern: str = "*.txt",
+    recursive: bool = True,
+    encoding: str = JV_DATA_ENCODING,
+    skip_unknown_records: bool = True,
+) -> JraVanStagingExport:
+    """Read a directory of JV-Data dumps and export one combined staging dataset."""
+
+    raw_directory = Path(raw_dir)
+    paths = tuple(_iter_raw_dump_paths(raw_directory, pattern, recursive=recursive))
+    if not paths:
+        raise ValueError(
+            f"No JV-Data raw files found in {raw_directory} with pattern {pattern!r}"
+        )
+
+    return ingest_jvdata_files_to_staging(
+        paths,
+        staging_dir,
+        encoding=encoding,
+        skip_unknown_records=skip_unknown_records,
+    )
+
+
 def write_jvdata_utf8_preview(
     raw_path: Path | str,
     output_path: Path | str,
@@ -223,3 +280,24 @@ def _format_record_location(record: JvDataRecord) -> str:
     if record.line_number is None:
         return source
     return f"{source}:{record.line_number}"
+
+
+def _iter_raw_dump_paths(
+    raw_dir: Path,
+    pattern: str,
+    *,
+    recursive: bool,
+) -> Iterable[Path]:
+    iterator = raw_dir.rglob(pattern) if recursive else raw_dir.glob(pattern)
+    yield from sorted(
+        (
+            path
+            for path in iterator
+            if path.is_file() and not _is_inspection_artifact(path)
+        ),
+        key=lambda path: path.as_posix(),
+    )
+
+
+def _is_inspection_artifact(path: Path) -> bool:
+    return path.name.endswith((".utf8.txt", ".stdout.txt", ".stderr.txt"))

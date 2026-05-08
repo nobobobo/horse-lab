@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from horse_lab.data.jravan import (
+    ingest_jvdata_directory_to_staging,
     ingest_jvdata_file_to_staging,
     write_jvdata_utf8_preview,
 )
@@ -51,6 +52,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.set_defaults(handler=_handle_jravan_ingest)
 
+    ingest_dir_parser = subparsers.add_parser(
+        "jravan-ingest-dir",
+        help="Convert a directory of CP932 JV-Data dumps into staging CSVs.",
+    )
+    ingest_dir_parser.add_argument("raw_dir", type=Path)
+    ingest_dir_parser.add_argument("staging_dir", type=Path)
+    ingest_dir_parser.add_argument("--pattern", default="*.txt")
+    ingest_dir_parser.add_argument(
+        "--no-recursive",
+        action="store_true",
+        help="Only scan the raw directory itself, not nested directories.",
+    )
+    ingest_dir_parser.add_argument("--encoding", default=JV_DATA_ENCODING)
+    ingest_dir_parser.add_argument(
+        "--strict-unknown",
+        action="store_true",
+        help="Fail when unsupported JV-Data record types are present.",
+    )
+    ingest_dir_parser.set_defaults(handler=_handle_jravan_ingest_dir)
+
     preview_parser = subparsers.add_parser(
         "jravan-preview",
         help="Write a UTF-8 inspection copy of a CP932 JV-Data raw dump.",
@@ -79,6 +100,32 @@ def _handle_jravan_ingest(args: argparse.Namespace) -> dict[str, object]:
     return {
         "raw_path": str(args.raw_path),
         "staging_dir": str(args.staging_dir),
+        "counts": {
+            "races": len(dataset.races),
+            "entries": len(dataset.entries),
+            "results": len(dataset.results),
+            "odds": len(dataset.odds),
+            "skipped_records": len(dataset.skipped_records),
+        },
+        "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
+    }
+
+
+def _handle_jravan_ingest_dir(args: argparse.Namespace) -> dict[str, object]:
+    export = ingest_jvdata_directory_to_staging(
+        args.raw_dir,
+        args.staging_dir,
+        pattern=args.pattern,
+        recursive=not args.no_recursive,
+        encoding=args.encoding,
+        skip_unknown_records=not args.strict_unknown,
+    )
+    dataset = export.dataset
+    return {
+        "raw_dir": str(args.raw_dir),
+        "staging_dir": str(args.staging_dir),
+        "pattern": args.pattern,
+        "recursive": not args.no_recursive,
         "counts": {
             "races": len(dataset.races),
             "entries": len(dataset.entries),
