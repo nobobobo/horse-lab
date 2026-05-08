@@ -1,16 +1,24 @@
-"""Canonical schema mappers for minimal JRA-VAN RA records."""
+"""Canonical schema mappers for minimal JRA-VAN RA and SE records."""
 
 from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Mapping
 
-from horse_lab.data.jravan.layouts import parse_minimal_ra_fields
+from horse_lab.data.jravan.layouts import (
+    parse_minimal_ra_fields,
+    parse_minimal_se_fields,
+)
 from horse_lab.data.jravan.raw import JvDataRecord
 from horse_lab.schemas import (
     CourseDirection,
+    Entry,
+    HorseId,
+    PersonId,
     Race,
     RaceId,
+    Result,
+    RunnerId,
     Surface,
     TrackCondition,
 )
@@ -65,6 +73,11 @@ def build_jravan_race_id(fields: Mapping[str, str]) -> RaceId:
     return RaceId(f"{race_date}{venue_code}{kaiji}{nichiji}{race_number}")
 
 
+def build_jravan_runner_id(fields: Mapping[str, str]) -> RunnerId:
+    horse_number = _require_two_digit_component(fields, "horse_number")
+    return RunnerId(f"{build_jravan_race_id(fields)}-{horse_number}")
+
+
 def map_ra_record_to_race(record: JvDataRecord) -> Race:
     fields = parse_minimal_ra_fields(record)
     race_date = _parse_yyyymmdd(_require(fields, "race_date"))
@@ -104,6 +117,62 @@ def map_ra_record_to_race(record: JvDataRecord) -> Race:
             "weather_code": weather_code,
             "grade_code": grade_code,
         },
+    )
+
+
+def map_se_record_to_entry(record: JvDataRecord) -> Entry:
+    fields = parse_minimal_se_fields(record)
+    jockey_id = _optional_str(fields.get("jockey_id"))
+    trainer_id = _optional_str(fields.get("trainer_id"))
+
+    return Entry(
+        runner_id=build_jravan_runner_id(fields),
+        race_id=build_jravan_race_id(fields),
+        horse_id=HorseId(_require(fields, "horse_id")),
+        horse_number=_parse_int(_require(fields, "horse_number"), "horse_number"),
+        gate_number=_parse_optional_int(fields.get("gate_number"), "gate_number"),
+        jockey_id=PersonId(jockey_id) if jockey_id is not None else None,
+        trainer_id=PersonId(trainer_id) if trainer_id is not None else None,
+        carried_weight_kg=_parse_deci_number(
+            fields.get("carried_weight"),
+            "carried_weight",
+        ),
+        body_weight_kg=_parse_optional_int(fields.get("body_weight"), "body_weight"),
+        body_weight_diff_kg=_parse_body_weight_diff(
+            fields.get("body_weight_diff_sign"),
+            fields.get("body_weight_diff"),
+        ),
+        age=_parse_optional_int(fields.get("age"), "age"),
+        is_scratched=False,
+        metadata={
+            "source": "jravan_minimal",
+            "data_kubun": fields.get("data_kubun", ""),
+            "horse_name": _optional_str(fields.get("horse_name")),
+            "sex_code": _optional_str(fields.get("sex_code")),
+        },
+    )
+
+
+def map_se_record_to_result(record: JvDataRecord) -> Result | None:
+    fields = parse_minimal_se_fields(record)
+    finish_position = _parse_optional_int(
+        fields.get("finish_position"),
+        "finish_position",
+    )
+    if finish_position is None:
+        return None
+
+    return Result(
+        race_id=build_jravan_race_id(fields),
+        runner_id=build_jravan_runner_id(fields),
+        finish_position=finish_position,
+        is_disqualified=_parse_flag(fields.get("is_disqualified")),
+        is_dead_heat=_parse_flag(fields.get("is_dead_heat")),
+        final_time_seconds=_parse_deci_number(
+            fields.get("final_time_seconds"),
+            "final_time_seconds",
+        ),
+        prize_jpy=_parse_optional_int(fields.get("prize_jpy"), "prize_jpy"),
     )
 
 
@@ -165,6 +234,22 @@ def _parse_hhmm(race_date: date, value: str | None) -> datetime | None:
         int(normalized[:2]),
         int(normalized[2:4]),
     )
+
+
+def _parse_deci_number(value: str | None, field_name: str) -> float | None:
+    normalized = _optional_str(value)
+    return _parse_int(normalized, field_name) / 10.0 if normalized is not None else None
+
+
+def _parse_body_weight_diff(sign: str | None, value: str | None) -> int | None:
+    diff = _parse_optional_int(value, "body_weight_diff")
+    if diff is None:
+        return None
+    return -diff if (sign or "").strip() == "-" else diff
+
+
+def _parse_flag(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "y", "yes", "true"}
 
 
 def _unknown_or_none(value: str | None) -> str | None:

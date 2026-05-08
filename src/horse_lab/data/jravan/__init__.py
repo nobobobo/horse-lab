@@ -13,7 +13,10 @@ from horse_lab.data.jravan.layouts import (
 )
 from horse_lab.data.jravan.mappers import (
     build_jravan_race_id,
+    build_jravan_runner_id,
     map_ra_record_to_race,
+    map_se_record_to_entry,
+    map_se_record_to_result,
 )
 from horse_lab.data.jravan.raw import (
     FixedWidthField,
@@ -29,7 +32,10 @@ __all__ = [
     "JRAVAN_MINIMAL_SE_FIELDS",
     "JvDataRecord",
     "build_jravan_race_id",
+    "build_jravan_runner_id",
     "map_ra_record_to_race",
+    "map_se_record_to_entry",
+    "map_se_record_to_result",
     "parse_fixed_width_fields",
     "parse_jvdata_record",
     "parse_minimal_ra_fields",

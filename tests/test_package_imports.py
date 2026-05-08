@@ -37,7 +37,18 @@ def test_pipeline_imports():
 
 
 def test_jravan_ingestion_helpers_import():
-    from horse_lab.data.jravan import JvDataRecord, parse_jvdata_record
+    from horse_lab.data.jravan import (
+        JvDataRecord,
+        build_jravan_runner_id,
+        map_ra_record_to_race,
+        map_se_record_to_entry,
+        map_se_record_to_result,
+        parse_jvdata_record,
+    )
 
     assert JvDataRecord.__name__ == "JvDataRecord"
+    assert callable(build_jravan_runner_id)
+    assert callable(map_ra_record_to_race)
+    assert callable(map_se_record_to_entry)
+    assert callable(map_se_record_to_result)
     assert callable(parse_jvdata_record)

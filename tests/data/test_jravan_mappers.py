@@ -11,12 +11,18 @@ from horse_lab.data.jravan.layouts import (
 )
 from horse_lab.data.jravan.mappers import (
     build_jravan_race_id,
+    build_jravan_runner_id,
     map_ra_record_to_race,
+    map_se_record_to_entry,
+    map_se_record_to_result,
 )
 from horse_lab.data.jravan.raw import FixedWidthField
 from horse_lab.schemas import (
     CourseDirection,
+    HorseId,
+    PersonId,
     RaceId,
+    RunnerId,
     Surface,
     TrackCondition,
 )
@@ -200,3 +206,90 @@ def test_map_ra_record_to_race_preserves_unknown_codes_in_metadata():
 def test_map_ra_record_to_race_rejects_non_ra_record():
     with pytest.raises(ValueError, match="Expected RA"):
         map_ra_record_to_race(_se_record())
+
+
+def test_build_jravan_runner_id_adds_horse_number_suffix():
+    fields = parse_minimal_se_fields(_se_record())
+
+    assert build_jravan_runner_id(fields) == RunnerId("2026050805010101-07")
+
+
+def test_build_jravan_runner_id_rejects_malformed_horse_number():
+    fields = parse_minimal_se_fields(_se_record(horse_number="7"))
+
+    with pytest.raises(ValueError, match="horse_number"):
+        build_jravan_runner_id(fields)
+
+
+def test_map_se_record_to_entry_maps_minimal_entry_schema():
+    entry = map_se_record_to_entry(_se_record())
+
+    assert entry.runner_id == RunnerId("2026050805010101-07")
+    assert entry.race_id == RaceId("2026050805010101")
+    assert entry.horse_id == HorseId("2020123456")
+    assert entry.horse_number == 7
+    assert entry.gate_number == 3
+    assert entry.jockey_id == PersonId("010203")
+    assert entry.trainer_id == PersonId("040506")
+    assert entry.carried_weight_kg == 56.5
+    assert entry.body_weight_kg == 486
+    assert entry.body_weight_diff_kg == -8
+    assert entry.age == 4
+    assert entry.is_scratched is False
+    assert entry.metadata["horse_name"] == "テストホース"
+    assert entry.metadata["sex_code"] == "2"
+    assert entry.metadata["data_kubun"] == "7"
+
+
+def test_map_se_record_to_entry_maps_blank_body_weight_diff_to_none():
+    entry = map_se_record_to_entry(
+        _se_record(body_weight_diff_sign="", body_weight_diff="")
+    )
+
+    assert entry.body_weight_diff_kg is None
+
+
+def test_map_se_record_to_entry_maps_unsigned_body_weight_diff_as_non_negative():
+    entry = map_se_record_to_entry(
+        _se_record(body_weight_diff_sign="", body_weight_diff="08")
+    )
+
+    assert entry.body_weight_diff_kg == 8
+
+
+def test_map_se_record_to_result_maps_populated_result_fields():
+    result = map_se_record_to_result(_se_record())
+
+    assert result is not None
+    assert result.race_id == RaceId("2026050805010101")
+    assert result.runner_id == RunnerId("2026050805010101-07")
+    assert result.finish_position == 1
+    assert result.is_disqualified is False
+    assert result.is_dead_heat is True
+    assert result.final_time_seconds == 70.5
+    assert result.prize_jpy == 10_000_000
+    assert result.did_win is True
+
+
+def test_map_se_record_to_result_returns_none_when_finish_position_is_blank():
+    result = map_se_record_to_result(
+        _se_record(
+            finish_position="",
+            is_disqualified="",
+            is_dead_heat="",
+            final_time_seconds="",
+            prize_jpy="",
+        )
+    )
+
+    assert result is None
+
+
+def test_map_se_record_to_entry_rejects_non_se_record():
+    with pytest.raises(ValueError, match="Expected SE"):
+        map_se_record_to_entry(_ra_record())
+
+
+def test_map_se_record_to_result_rejects_invalid_finish_position():
+    with pytest.raises(ValueError, match="Invalid integer for finish_position"):
+        map_se_record_to_result(_se_record(finish_position="XX"))
