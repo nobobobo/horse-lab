@@ -171,6 +171,7 @@ Primary path:
 - `JvLinkRtDump.exe`: `JVRTOpen` 経由の realtime JV-Data dump。NHK マイルカップ race key `2026051005020611` で検証済み。
 - 検証済み realtime output: `0B31` latest single/place/bracket odds、`0B30` all-bet odds、`0B41` time-series single/place/bracket odds。
 - `Invoke-JvLinkDumpToS3.ps1`: 蓄積 JV-Link extraction を実行し、run directory を S3 へ upload し、成功後に local file を削除する。
+- `Invoke-JvLinkHistoricalRangeToS3.ps1`: 3-6か月などの履歴範囲を指定して `RACE` などの蓄積 DataSpec を S3-first で収集する。
 - `Invoke-JvLinkRtRaceListToS3.ps1`: race key list の realtime odds extraction を実行し、S3 upload 後に local file を削除する。
 - `Invoke-S3RawUpload.ps1`: local raw directory を manifest 付きで S3 upload し、必要に応じて upload 後に削除する。
 - `horse-lab jravan-s3-pull-raw <run_id> data/raw/jravan`: S3 から Mac workspace へ raw run を sync する。まず `--dry-run` で実行される `aws s3 sync` を確認する。
@@ -185,6 +186,17 @@ Windows worker の運用方針:
 - 短期: Windows VM/cloud instance を JV-Link extraction 専用に使う。
 - 中期: Windows scheduled task で raw dump を S3 に書き出す。
 - 後期: worker を薄い service または artifact handoff として包む。ただし vendor authentication と JV-Link call は modeling code の外に置く。
+
+6か月分の履歴蓄積を開始する例:
+
+```powershell
+& 'C:\horse-lab\scripts\Invoke-JvLinkHistoricalRangeToS3.ps1' `
+  -DataSpecs RACE `
+  -FromDate 20251108000000 `
+  -RunId historical_RACE_20251108_20260508
+```
+
+この wrapper は内部で `Invoke-JvLinkDumpToS3.ps1` を呼ぶため、upload 成功後は既定で Windows local file を削除する。Windows volume を data lake にしない方針は維持する。
 
 S3 raw artifact lake:
 

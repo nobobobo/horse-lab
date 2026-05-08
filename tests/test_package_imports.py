@@ -21,7 +21,7 @@ def test_baseline_modules_import():
         ProbabilitySummary,
         summarize_win_probability_predictions,
     )
-    from horse_lab.models import MarketImpliedProbabilityModel
+    from horse_lab.models import LightGBMWinProbabilityModel, MarketImpliedProbabilityModel
 
     assert KellyConfig.__name__ == "KellyConfig"
     assert callable(calculate_kelly_stake)
@@ -30,6 +30,7 @@ def test_baseline_modules_import():
     assert PerformanceSummary.__name__ == "PerformanceSummary"
     assert ProbabilitySummary.__name__ == "ProbabilitySummary"
     assert callable(summarize_win_probability_predictions)
+    assert LightGBMWinProbabilityModel.__name__ == "LightGBMWinProbabilityModel"
     assert MarketImpliedProbabilityModel.__name__ == "MarketImpliedProbabilityModel"
 
 

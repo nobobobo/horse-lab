@@ -9,6 +9,7 @@ from horse_lab.models.base import (
     TrainingContext,
     TrainingDataset,
 )
+from horse_lab.models.lightgbm import LightGBMWinProbabilityModel
 from horse_lab.models.market import MarketImpliedProbabilityModel
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "BaseMetaModel",
     "BaseRaceModel",
     "InferenceContext",
+    "LightGBMWinProbabilityModel",
     "MarketImpliedProbabilityModel",
     "ModelArtifact",
     "TrainingContext",
