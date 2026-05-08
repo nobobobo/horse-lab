@@ -156,17 +156,21 @@ horse-lab jravan-preview \
 Primary path:
 
 1. Use JRA-VAN Data Lab. and the official SDK/JV-Link on a Windows environment.
-2. The Windows worker downloads JV-Data and exports raw text dumps by date and data kind, for example `data/raw/jravan/YYYYMMDD/*.txt`.
-3. Sync those dumps to the Mac development environment.
-4. Run `ingest_jvdata_file_to_staging` to produce repository-compatible staging CSVs.
-5. Use `JVOpen` for accumulated data such as `RACE`, and `JVRTOpen` for realtime data such as `0B30`, `0B31`, and `0B41`.
-6. Add scheduled O1 extraction so the staging pipeline can populate `odds.csv` from real tote snapshots.
+2. The Windows worker downloads JV-Data to a short-lived working directory.
+3. Immediately upload raw text dumps, logs, and manifests to S3; delete local Windows files only after successful upload.
+4. Sync needed dumps from S3 to the Mac development environment.
+5. Run `ingest_jvdata_file_to_staging` to produce repository-compatible staging CSVs.
+6. Use `JVOpen` for accumulated data such as `RACE`, and `JVRTOpen` for realtime data such as `0B30`, `0B31`, and `0B41`.
+7. Add scheduled O1 extraction so the staging pipeline can populate `odds.csv` from real tote snapshots.
 
 Current Windows worker probes:
 
 - `JvLinkDump.exe`: accumulated JV-Data via `JVOpen`, currently used for `RACE`.
 - `JvLinkRtDump.exe`: realtime JV-Data via `JVRTOpen`, currently verified for NHK Mile Cup race key `2026051005020611`.
 - Verified realtime outputs: `0B31` latest single/place/bracket odds, `0B30` all-bet odds, and `0B41` time-series single/place/bracket odds.
+- `Invoke-JvLinkDumpToS3.ps1`: runs accumulated JV-Link extraction, uploads the run directory to S3, and deletes local files after successful upload by default.
+- `Invoke-JvLinkRtRaceListToS3.ps1`: runs realtime odds extraction for race keys, uploads to S3, and deletes local files after successful upload by default.
+- `Invoke-S3RawUpload.ps1`: uploads a local raw directory to S3 with a manifest and optional post-upload deletion.
 - `horse-lab jravan-ingest-dir data/raw/jravan data/interim/jravan/YYYYMMDD` combines multiple raw dumps into one staging dataset.
 - `Invoke-JvLinkRtRaceList.ps1` accepts race keys and collects realtime odds for multiple races into per-race raw dump directories.
 
@@ -181,6 +185,7 @@ S3 raw artifact lake:
 - Bucket: `s3://horse-lab-jravan-244306245597-apne1/`
 - Canonical raw prefix: `raw/jravan/<dataset_or_run_id>/...`
 - Keep the bucket private with public access blocked, server-side encryption enabled, and versioning enabled.
-- The current bridge can upload Windows files through a temporary presigned PUT URL. The target automation path is to attach an EC2 instance role with write access to this bucket and run `aws s3 sync` from the Windows worker.
+- The Windows EC2 uses its instance role for S3 writes. Local raw files on Windows are temporary and should be removed after the upload manifest is stored in S3.
+- The current local-development path is S3 to macOS: `aws s3 cp s3://horse-lab-jravan-244306245597-apne1/raw/jravan/<run_id>/... data/raw/jravan/<run_id>/...`.
 
 Web scraping remains a fallback only for exploratory checks. It is weaker for this project because it is more brittle, may not preserve historical point-in-time odds snapshots, and can create legal/terms-of-use risk.
