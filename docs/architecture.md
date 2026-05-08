@@ -94,3 +94,16 @@ The first executable baseline is dependency-light and supports win bets only.
 - `horse_lab.backtesting.simulator.BacktestSimulator` simulates runner-level win bets over historical predictions, odds, and results.
 - `horse_lab.evaluation.metrics` summarizes ROI, hit rate, turnover, and max drawdown.
 - `horse_lab.data` and `horse_lab.features` define protocols for storage and point-in-time feature generation.
+
+## Implemented Historical Replay
+
+The first historical replay layer uses local CSV fixtures and read-only CSV repositories.
+
+- `horse_lab.data.csv_parsing` converts CSV rows into domain schemas.
+- `horse_lab.data.csv_repositories` implements race, odds, result, and feature repositories over local files.
+- `sample_data/` provides deterministic fixtures for two races, four runners, multiple odds timestamps, and point-in-time feature rows.
+- `horse_lab.pipelines.replay.run_market_replay` coordinates repositories, the market-implied baseline, and the Kelly backtest simulator.
+
+Replay uses the latest per-runner win odds at or before `as_of`, which is point-in-time safe. It is not yet a coherent same-timestamp tote snapshot selector.
+
+JRA-VAN Data Lab. remains the intended production source for JRA data. Future JRA-VAN adapters should implement the same repository protocols so modeling and backtesting logic do not change when the data source changes.
