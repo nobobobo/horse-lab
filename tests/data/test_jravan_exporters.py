@@ -158,6 +158,65 @@ def test_csv_row_helpers_render_none_and_booleans_consistently():
     assert result_row["final_time_seconds"] == ""
 
 
+def test_write_staging_csvs_orders_rows_deterministically(tmp_path):
+    tokyo_race_2 = map_ra_record_to_race(_ra_record(race_number="02"))
+    kyoto_race_1 = map_ra_record_to_race(_ra_record(venue_code="08"))
+    tokyo_later_date_race_1 = map_ra_record_to_race(
+        _ra_record(race_date="20260509")
+    )
+
+    tokyo_horse_7 = map_se_record_to_entry(_se_record(horse_number="07"))
+    tokyo_horse_2 = map_se_record_to_entry(
+        _se_record(horse_number="02", horse_id="2020123452")
+    )
+    kyoto_horse_1 = map_se_record_to_entry(
+        _se_record(venue_code="08", horse_number="01", horse_id="2020123451")
+    )
+
+    tokyo_result_7 = map_se_record_to_result(_se_record(horse_number="07"))
+    tokyo_result_2 = map_se_record_to_result(
+        _se_record(horse_number="02", horse_id="2020123452")
+    )
+    kyoto_result_1 = map_se_record_to_result(
+        _se_record(venue_code="08", horse_number="01", horse_id="2020123451")
+    )
+    assert tokyo_result_7 is not None
+    assert tokyo_result_2 is not None
+    assert kyoto_result_1 is not None
+
+    paths = write_staging_csvs(
+        tmp_path,
+        races=[tokyo_later_date_race_1, tokyo_race_2, kyoto_race_1],
+        entries=[tokyo_horse_7, kyoto_horse_1, tokyo_horse_2],
+        results=[tokyo_result_7, kyoto_result_1, tokyo_result_2],
+    )
+
+    assert [
+        (row["race_date"], row["venue"], row["race_number"])
+        for row in read_csv_rows(paths["races"])
+    ] == [
+        ("2026-05-08", "Kyoto", "1"),
+        ("2026-05-08", "Tokyo", "2"),
+        ("2026-05-09", "Tokyo", "1"),
+    ]
+    assert [
+        (row["race_id"], row["horse_number"])
+        for row in read_csv_rows(paths["entries"])
+    ] == [
+        ("2026050805010101", "2"),
+        ("2026050805010101", "7"),
+        ("2026050808010101", "1"),
+    ]
+    assert [
+        (row["race_id"], row["runner_id"])
+        for row in read_csv_rows(paths["results"])
+    ] == [
+        ("2026050805010101", "2026050805010101-02"),
+        ("2026050805010101", "2026050805010101-07"),
+        ("2026050808010101", "2026050808010101-01"),
+    ]
+
+
 def test_write_staging_csvs_returns_expected_paths_and_creates_parent_directory(
     tmp_path,
 ):
