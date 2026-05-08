@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 from pathlib import Path
 
 from horse_lab.cli import main
@@ -249,6 +250,74 @@ def test_market_replay_cli_runs_replay_ready_csv_dataset(capsys):
     assert summary["backtest"]["final_bankroll_jpy"] == 108_000
     assert summary["probability"]["observations"] == 4
     assert summary["probability"]["brier_score"] > 0.0
+
+
+def test_lightgbm_train_cli_invokes_training_pipeline(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    called = {}
+    sentinel = object()
+
+    def fake_run(dataset_dir, artifact_dir, **kwargs):
+        called["dataset_dir"] = dataset_dir
+        called["artifact_dir"] = artifact_dir
+        called["kwargs"] = kwargs
+        return sentinel
+
+    def fake_to_dict(result):
+        assert result is sentinel
+        return {
+            "artifact": {
+                "model_path": str(tmp_path / "artifacts" / "model"),
+                "summary_path": str(tmp_path / "artifacts" / "evaluation_summary.json"),
+            },
+            "counts": {"predictions": 2},
+            "probability": {"observations": 2},
+        }
+
+    monkeypatch.setattr("horse_lab.cli.run_lightgbm_training_from_csv", fake_run)
+    monkeypatch.setattr("horse_lab.cli.lightgbm_training_result_to_dict", fake_to_dict)
+
+    dataset_dir = tmp_path / "dataset"
+    artifact_dir = tmp_path / "artifacts"
+    assert (
+        main(
+            [
+                "lightgbm-train",
+                str(dataset_dir),
+                str(artifact_dir),
+                "--train-end-date",
+                "2026-05-07",
+                "--valid-start-date",
+                "2026-05-08",
+                "--valid-end-date",
+                "2026-05-08",
+                "--as-of",
+                "2026-05-08T23:59:00",
+                "--feature-version",
+                "fixture-v1",
+                "--random-seed",
+                "123",
+                "--model-version",
+                "test-lgbm",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["dataset_dir"] == str(dataset_dir)
+    assert summary["artifact_dir"] == str(artifact_dir)
+    assert summary["split"]["train_end_date"] == "2026-05-07"
+    assert called["dataset_dir"] == dataset_dir
+    assert called["artifact_dir"] == artifact_dir
+    assert called["kwargs"]["train_end_date"] == dt.date(2026, 5, 7)
+    assert called["kwargs"]["as_of"] == dt.datetime(2026, 5, 8, 23, 59)
+    assert called["kwargs"]["feature_version"] == "fixture-v1"
+    assert called["kwargs"]["random_seed"] == 123
+    assert called["kwargs"]["model_version"] == "test-lgbm"
 
 
 def test_jravan_daily_market_replay_cli_runs_local_raw_workflow(

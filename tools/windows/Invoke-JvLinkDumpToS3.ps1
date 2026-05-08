@@ -21,9 +21,21 @@ param(
 
     [int]$MaxReadIterations = 1000000,
 
+    [int]$BufferSize = 110000,
+
+    [int]$LogEveryChunks = 100,
+
+    [int]$FlushEveryChunks = 1000,
+
     [int]$DownloadWaitTimeoutSeconds = 900,
 
     [int]$DownloadPollSeconds = 2,
+
+    [string]$FailedS3Prefix = "raw/jravan/failed",
+
+    # Failed dump partials are uploaded to FailedS3Prefix and deleted by
+    # default. Use this only when actively debugging the Windows worker.
+    [switch]$KeepFailedLocal,
 
     [switch]$KeepLocal
 )
@@ -44,6 +56,42 @@ $safeDataSpec = $DataSpec -replace '[^0-9A-Za-z_-]', '_'
 $outputPath = Join-Path $outputRoot "${safeDataSpec}_${FromDate}.txt"
 $logPath = Join-Path $outputRoot "${safeDataSpec}_${FromDate}.log"
 
+function Invoke-RawUpload {
+    param(
+        [string]$Prefix,
+        [bool]$DeleteAfterUpload
+    )
+
+    if ($DeleteAfterUpload) {
+        $output = (& $UploadScriptPath `
+            -LocalRoot $outputRoot `
+            -Bucket $Bucket `
+            -Prefix $Prefix `
+            -DeleteAfterUpload 2>&1 | Out-String)
+    }
+    else {
+        $output = (& $UploadScriptPath `
+            -LocalRoot $outputRoot `
+            -Bucket $Bucket `
+            -Prefix $Prefix 2>&1 | Out-String)
+    }
+    [pscustomobject]@{
+        exitCode = $LASTEXITCODE
+        output = $output
+    }
+}
+
+function Remove-OutputRootIfEmpty {
+    if (-not (Test-Path -LiteralPath $outputRoot)) {
+        return
+    }
+
+    $remainingFiles = Get-ChildItem -LiteralPath $outputRoot -Recurse -File -ErrorAction SilentlyContinue
+    if (-not $remainingFiles) {
+        Remove-Item -LiteralPath $outputRoot -Force
+    }
+}
+
 $dumpArgs = @(
     "--data-spec", $DataSpec,
     "--from-date", $FromDate,
@@ -51,6 +99,9 @@ $dumpArgs = @(
     "--output", $outputPath,
     "--log", $logPath,
     "--max-read-iterations", [string]$MaxReadIterations,
+    "--buffer-size", [string]$BufferSize,
+    "--log-every-chunks", [string]$LogEveryChunks,
+    "--flush-every-chunks", [string]$FlushEveryChunks,
     "--download-wait-timeout-seconds", [string]$DownloadWaitTimeoutSeconds,
     "--download-poll-seconds", [string]$DownloadPollSeconds
 )
@@ -61,32 +112,59 @@ $dumpExitCode = $LASTEXITCODE
 $finishedDumpAt = Get-Date
 
 if ($dumpExitCode -ne 0) {
+    $failedUploadPrefix = ($FailedS3Prefix.Trim("/") + "/" + $RunId).Trim("/")
+    $deleteFailedAfterUpload = -not ($KeepLocal -or $KeepFailedLocal)
+    $failedUploadOutput = ""
+    $failedUploadExitCode = $null
+    $failedUploadError = ""
+
+    try {
+        $failedUpload = Invoke-RawUpload -Prefix $failedUploadPrefix -DeleteAfterUpload $deleteFailedAfterUpload
+        $failedUploadOutput = $failedUpload.output
+        $failedUploadExitCode = $failedUpload.exitCode
+        if ($failedUploadExitCode -ne 0) {
+            throw "S3 failed-artifact upload exited with code $failedUploadExitCode"
+        }
+
+        if ($deleteFailedAfterUpload) {
+            Remove-OutputRootIfEmpty
+        }
+    }
+    catch {
+        $failedUploadError = $_.Exception.Message
+        [pscustomobject]@{
+            runId = $RunId
+            stage = "dump"
+            exitCode = $dumpExitCode
+            outputRoot = $outputRoot
+            failedS3Prefix = $failedUploadPrefix
+            failedUploadExitCode = $failedUploadExitCode
+            failedUploadOutput = $failedUploadOutput
+            failedUploadError = $failedUploadError
+            stdout = $dumpOutput
+        } | ConvertTo-Json -Depth 8
+        throw "JvLinkDump failed with exit code $dumpExitCode; failed-artifact upload also failed, so local files were kept at $outputRoot"
+    }
+
     [pscustomobject]@{
         runId = $RunId
         stage = "dump"
         exitCode = $dumpExitCode
         outputRoot = $outputRoot
+        failedS3Prefix = $failedUploadPrefix
+        failedArtifactsDeletedLocal = $deleteFailedAfterUpload
+        failedUploadExitCode = $failedUploadExitCode
+        failedUploadOutput = $failedUploadOutput
         stdout = $dumpOutput
-    } | ConvertTo-Json -Depth 6
-    throw "JvLinkDump failed with exit code $dumpExitCode; local files kept at $outputRoot"
+    } | ConvertTo-Json -Depth 8
+    throw "JvLinkDump failed with exit code $dumpExitCode; partial artifacts uploaded to s3://$Bucket/$failedUploadPrefix"
 }
 
 $deleteAfterUpload = -not $KeepLocal
 $uploadPrefix = ($S3Prefix.Trim("/") + "/" + $RunId).Trim("/")
-if ($deleteAfterUpload) {
-    $uploadOutput = (& $UploadScriptPath `
-        -LocalRoot $outputRoot `
-        -Bucket $Bucket `
-        -Prefix $uploadPrefix `
-        -DeleteAfterUpload 2>&1 | Out-String)
-}
-else {
-    $uploadOutput = (& $UploadScriptPath `
-        -LocalRoot $outputRoot `
-        -Bucket $Bucket `
-        -Prefix $uploadPrefix 2>&1 | Out-String)
-}
-$uploadExitCode = $LASTEXITCODE
+$upload = Invoke-RawUpload -Prefix $uploadPrefix -DeleteAfterUpload $deleteAfterUpload
+$uploadOutput = $upload.output
+$uploadExitCode = $upload.exitCode
 $finishedUploadAt = Get-Date
 
 if ($uploadExitCode -ne 0) {
@@ -101,11 +179,8 @@ if ($uploadExitCode -ne 0) {
     throw "S3 upload failed with exit code $uploadExitCode; local files kept at $outputRoot"
 }
 
-if ($deleteAfterUpload -and (Test-Path -LiteralPath $outputRoot)) {
-    $remainingFiles = Get-ChildItem -LiteralPath $outputRoot -Recurse -File -ErrorAction SilentlyContinue
-    if (-not $remainingFiles) {
-        Remove-Item -LiteralPath $outputRoot -Force
-    }
+if ($deleteAfterUpload) {
+    Remove-OutputRootIfEmpty
 }
 
 [pscustomobject]@{

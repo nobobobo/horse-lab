@@ -18,6 +18,16 @@ param(
 
     [int]$MaxReadIterations = 1000000,
 
+    [int]$BufferSize = 110000,
+
+    [int]$LogEveryChunks = 100,
+
+    [int]$FlushEveryChunks = 1000,
+
+    [string]$FailedS3Prefix = "raw/jravan/failed",
+
+    [switch]$KeepFailedLocal,
+
     [switch]$KeepLocal
 )
 
@@ -69,10 +79,17 @@ $results = foreach ($dataSpec in $DataSpecs) {
         "-Bucket", $Bucket,
         "-S3Prefix", $S3Prefix,
         "-RunId", $dataSpecRunId,
-        "-MaxReadIterations", [string]$MaxReadIterations
+        "-MaxReadIterations", [string]$MaxReadIterations,
+        "-BufferSize", [string]$BufferSize,
+        "-LogEveryChunks", [string]$LogEveryChunks,
+        "-FlushEveryChunks", [string]$FlushEveryChunks,
+        "-FailedS3Prefix", $FailedS3Prefix
     )
     if ($KeepLocal) {
         $arguments += "-KeepLocal"
+    }
+    if ($KeepFailedLocal) {
+        $arguments += "-KeepFailedLocal"
     }
 
     $specStartedAt = Get-Date

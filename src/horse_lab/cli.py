@@ -30,7 +30,11 @@ from horse_lab.data.jravan import (
 )
 from horse_lab.data.jravan.raw import JV_DATA_ENCODING
 from horse_lab.evaluation import PerformanceSummary, ProbabilitySummary
-from horse_lab.pipelines import run_market_replay
+from horse_lab.pipelines import (
+    lightgbm_training_result_to_dict,
+    run_lightgbm_training_from_csv,
+    run_market_replay,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -148,6 +152,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Initial bankroll used by the Kelly backtest.",
     )
     market_replay_parser.set_defaults(handler=_handle_market_replay)
+
+    lightgbm_parser = subparsers.add_parser(
+        "lightgbm-train",
+        help="Train and validate the LightGBM win-probability baseline.",
+    )
+    lightgbm_parser.add_argument("dataset_dir", type=Path)
+    lightgbm_parser.add_argument("artifact_dir", type=Path)
+    lightgbm_parser.add_argument(
+        "--train-end-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_parser.add_argument(
+        "--valid-start-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_parser.add_argument(
+        "--valid-end-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_parser.add_argument("--as-of", type=_parse_cli_datetime, required=True)
+    lightgbm_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+        help="Feature version to read from features.csv.",
+    )
+    lightgbm_parser.add_argument("--random-seed", type=int, default=42)
+    lightgbm_parser.add_argument("--model-version", default="lightgbm-win-v1")
+    lightgbm_parser.set_defaults(handler=_handle_lightgbm_train)
 
     daily_replay_parser = subparsers.add_parser(
         "jravan-daily-market-replay",
@@ -316,6 +351,30 @@ def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
         "backtest": _performance_summary_to_dict(result.summary),
         "probability": _probability_summary_to_dict(result.probability_summary),
     }
+
+
+def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:
+    result = run_lightgbm_training_from_csv(
+        args.dataset_dir,
+        args.artifact_dir,
+        train_end_date=args.train_end_date,
+        valid_start_date=args.valid_start_date,
+        valid_end_date=args.valid_end_date,
+        as_of=args.as_of,
+        feature_version=args.feature_version,
+        random_seed=args.random_seed,
+        model_version=args.model_version,
+    )
+    summary = lightgbm_training_result_to_dict(result)
+    summary["dataset_dir"] = str(args.dataset_dir)
+    summary["artifact_dir"] = str(args.artifact_dir)
+    summary["split"] = {
+        "train_end_date": args.train_end_date.isoformat(),
+        "valid_start_date": args.valid_start_date.isoformat(),
+        "valid_end_date": args.valid_end_date.isoformat(),
+        "as_of": args.as_of.isoformat(),
+    }
+    return summary
 
 
 def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, object]:

@@ -178,6 +178,7 @@ Primary path:
 - `horse-lab jravan-ingest-dir data/raw/jravan data/interim/jravan/YYYYMMDD`: 複数 raw dump を 1 つの staging dataset に結合する。
 - `horse-lab jravan-build-replay-dataset data/interim/jravan/YYYYMMDD data/processed/jravan/YYYYMMDD/replay`: staging CSV から complete-race replay dataset を作る。
 - `horse-lab market-replay data/processed/jravan/YYYYMMDD/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS`: market baseline、Kelly backtest、probability calibration diagnostics を実行する。
+- `horse-lab lightgbm-train data/processed/jravan/YYYYMMDD/replay artifacts/lightgbm/YYYYMMDD --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS`: replay dataset から LightGBM win-probability baseline を学習し、model artifact と validation summary を保存する。
 - `horse-lab jravan-daily-market-replay <run_id> --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS`: S3 raw sync、staging ingest、replay dataset build、market replay、report 出力を 1 つの日次 smoke workflow として実行する。ローカルに raw がある場合は `--skip-s3-pull` を使う。
 - `Invoke-JvLinkRtRaceList.ps1`: 複数 race key の realtime odds を per-race raw dump directory に収集する。
 
@@ -197,6 +198,8 @@ Windows worker の運用方針:
 ```
 
 この wrapper は内部で `Invoke-JvLinkDumpToS3.ps1` を呼ぶため、upload 成功後は既定で Windows local file を削除する。Windows volume を data lake にしない方針は維持する。
+
+注意点: JV-Link の蓄積系 `JVOpen` は `FromDate` 開始の取得であり、こちら側で厳密な `ToDate` chunk 境界を保証しにくい。そのため大規模履歴は 6か月一括よりも、短めの `FromDate` で retry しながら S3 に積む。dump が失敗した場合も `Invoke-JvLinkDumpToS3.ps1` は partial raw/log/manifest を `raw/jravan/failed/<run_id>/` に退避し、upload 成功後は local file を削除する。障害調査で local を残す場合だけ `-KeepFailedLocal` を明示する。
 
 S3 raw artifact lake:
 

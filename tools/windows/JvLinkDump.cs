@@ -24,6 +24,9 @@ namespace HorseLab.Tools
             var maxReadIterations = GetInt(options, "--max-read-iterations", 1000000);
             var downloadWaitTimeoutSeconds = GetInt(options, "--download-wait-timeout-seconds", 600);
             var downloadPollSeconds = GetInt(options, "--download-poll-seconds", 2);
+            var bufferSize = GetPositiveInt(options, "--buffer-size", DefaultBufferSize);
+            var logEveryChunks = GetNonNegativeInt(options, "--log-every-chunks", 100);
+            var flushEveryChunks = GetNonNegativeInt(options, "--flush-every-chunks", 1000);
 
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
             Directory.CreateDirectory(Path.GetDirectoryName(logPath));
@@ -32,7 +35,14 @@ namespace HorseLab.Tools
             object jv = null;
             try
             {
-                Log(logPath, string.Format("starting DataSpec={0} FromDate={1} Option={2}", dataSpec, fromDate, option));
+                Log(logPath, string.Format(
+                    "starting DataSpec={0} FromDate={1} Option={2} BufferSize={3} LogEveryChunks={4} FlushEveryChunks={5}",
+                    dataSpec,
+                    fromDate,
+                    option,
+                    bufferSize,
+                    logEveryChunks,
+                    flushEveryChunks));
                 var jvType = Type.GetTypeFromProgID("JVDTLab.JVLink", true);
                 jv = Activator.CreateInstance(jvType);
                 dynamic link = jv;
@@ -77,22 +87,32 @@ namespace HorseLab.Tools
                 var recordChunks = 0;
                 var fileMarkers = 0;
                 var reachedEnd = false;
+                var buffer = new byte[bufferSize];
 
                 using (var writer = new StreamWriter(outputPath, false, shiftJis))
                 {
                     for (var i = 0; i < maxReadIterations; i++)
                     {
-                        var buffer = new byte[DefaultBufferSize];
+                        if (buffer == null || buffer.Length < bufferSize)
+                        {
+                            buffer = new byte[bufferSize];
+                        }
+
                         string bufferName = string.Empty;
-                        int readCode = link.JVGets(ref buffer, DefaultBufferSize, ref bufferName);
+                        int readCode = link.JVGets(ref buffer, bufferSize, ref bufferName);
 
                         if (readCode > 0)
                         {
                             writer.WriteLine(shiftJis.GetString(buffer, 0, readCode).TrimEnd('\r', '\n'));
                             recordChunks += 1;
-                            if (recordChunks % 100 == 0)
+                            if (logEveryChunks > 0 && recordChunks % logEveryChunks == 0)
                             {
                                 Log(logPath, string.Format("JVGets chunks={0}", recordChunks));
+                            }
+                            if (flushEveryChunks > 0 && recordChunks % flushEveryChunks == 0)
+                            {
+                                writer.Flush();
+                                Log(logPath, string.Format("writer flushed chunks={0}", recordChunks));
                             }
                             continue;
                         }
@@ -204,6 +224,28 @@ namespace HorseLab.Tools
         {
             string value;
             return options.TryGetValue(key, out value) ? int.Parse(value) : defaultValue;
+        }
+
+        private static int GetPositiveInt(Dictionary<string, string> options, string key, int defaultValue)
+        {
+            var value = GetInt(options, key, defaultValue);
+            if (value <= 0)
+            {
+                throw new ArgumentOutOfRangeException(key, value, "Value must be positive.");
+            }
+
+            return value;
+        }
+
+        private static int GetNonNegativeInt(Dictionary<string, string> options, string key, int defaultValue)
+        {
+            var value = GetInt(options, key, defaultValue);
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(key, value, "Value must be zero or positive.");
+            }
+
+            return value;
         }
 
         private static void Log(string logPath, string message)
