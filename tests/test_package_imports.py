@@ -50,6 +50,7 @@ def test_jravan_ingestion_helpers_import():
         ingest_jvdata_file_to_staging,
         map_jvdata_records,
         map_o1_record_to_odds_quote,
+        map_o1_record_to_odds_quotes,
         odds_quote_to_csv_row,
         race_to_csv_row,
         map_ra_record_to_race,
@@ -64,6 +65,7 @@ def test_jravan_ingestion_helpers_import():
     assert callable(ingest_jvdata_file_to_staging)
     assert callable(map_jvdata_records)
     assert callable(map_o1_record_to_odds_quote)
+    assert callable(map_o1_record_to_odds_quotes)
     assert callable(odds_quote_to_csv_row)
     assert callable(race_to_csv_row)
     assert callable(map_ra_record_to_race)

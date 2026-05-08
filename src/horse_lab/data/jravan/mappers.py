@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Mapping
+from typing import Iterable, Mapping
 
 from horse_lab.data.jravan.layouts import (
     parse_minimal_o1_fields,
@@ -249,27 +249,104 @@ def map_se_record_to_result(record: JvDataRecord) -> Result | None:
     )
 
 
-def map_o1_record_to_odds_quote(record: JvDataRecord) -> OddsQuote:
+def map_o1_record_to_odds_quotes(record: JvDataRecord) -> tuple[OddsQuote, ...]:
     fields = parse_minimal_o1_fields(record)
-    captured_date = _parse_yyyymmdd(_require(fields, "captured_date"))
+    race_id = build_jravan_race_id(fields)
+    captured_at = _parse_o1_captured_at(fields)
+    pool_size_jpy = _parse_pool_size_jpy_x100(fields.get("win_pool_size_jpy_x100"))
+    quotes: list[OddsQuote] = []
 
-    return OddsQuote(
-        race_id=build_jravan_race_id(fields),
-        runner_id=build_jravan_runner_id(fields),
-        bet_type=BetType.WIN,
-        captured_at=_parse_required_hhmm(
-            captured_date,
-            fields.get("captured_time"),
-            field_name="captured_time",
-        ),
-        odds=_parse_required_deci_number(fields.get("win_odds"), "win_odds"),
-        popularity_rank=_parse_optional_int(
-            fields.get("popularity_rank"),
-            "popularity_rank",
-        ),
-        pool_size_jpy=_parse_optional_int(fields.get("pool_size_jpy"), "pool_size_jpy"),
-        source="jravan_o1_minimal",
-    )
+    for horse_number, odds, popularity_rank in _iter_o1_win_odds_entries(fields):
+        quote = OddsQuote(
+            race_id=race_id,
+            runner_id=RunnerId(f"{race_id}-{horse_number}"),
+            bet_type=BetType.WIN,
+            captured_at=captured_at,
+            odds=odds,
+            popularity_rank=popularity_rank,
+            pool_size_jpy=pool_size_jpy,
+            source="jravan_o1_win",
+        )
+        quotes.append(quote)
+
+    return tuple(quotes)
+
+
+def map_o1_record_to_odds_quote(record: JvDataRecord) -> OddsQuote:
+    quotes = map_o1_record_to_odds_quotes(record)
+    if not quotes:
+        raise ValueError("O1 record contains no supported win odds quotes")
+    return quotes[0]
+
+
+def _iter_o1_win_odds_entries(
+    fields: Mapping[str, str],
+) -> Iterable[tuple[str, float, int | None]]:
+    block = fields.get("win_odds_entries", "")
+    raw_bytes = block.encode("cp932")
+    for index in range(28):
+        entry_bytes = raw_bytes[index * 8 : (index + 1) * 8]
+        if not entry_bytes.strip():
+            continue
+        entry = entry_bytes.decode("cp932")
+        horse_number = entry[0:2].strip()
+        odds = _parse_o1_odds_or_none(entry[2:6])
+        if odds is None:
+            continue
+        if len(horse_number) != 2 or not horse_number.isdigit() or horse_number == "00":
+            raise ValueError(f"Invalid O1 horse_number: {horse_number!r}")
+        popularity_rank = _parse_o1_rank_or_none(entry[6:8])
+        yield horse_number, odds, popularity_rank
+
+
+def _parse_o1_captured_at(fields: Mapping[str, str]) -> datetime:
+    race_date = _parse_yyyymmdd(_require(fields, "race_date"))
+    data_created_date = _parse_yyyymmdd(_require(fields, "data_created_date"))
+    captured_month_day_time = _optional_str(fields.get("captured_month_day_time"))
+    if captured_month_day_time is None or captured_month_day_time == "00000000":
+        return datetime(
+            data_created_date.year,
+            data_created_date.month,
+            data_created_date.day,
+        )
+
+    if len(captured_month_day_time) != 8 or not captured_month_day_time.isdigit():
+        raise ValueError(
+            f"Invalid captured_month_day_time: {captured_month_day_time!r}"
+        )
+
+    month = int(captured_month_day_time[0:2])
+    day = int(captured_month_day_time[2:4])
+    hour = int(captured_month_day_time[4:6])
+    minute = int(captured_month_day_time[6:8])
+    try:
+        return datetime(race_date.year, month, day, hour, minute)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid captured_month_day_time: {captured_month_day_time!r}"
+        ) from exc
+
+
+def _parse_o1_odds_or_none(value: str) -> float | None:
+    normalized = value.strip()
+    if normalized in {"", "0000", "----", "****"}:
+        return None
+    if not normalized.isdigit():
+        raise ValueError(f"Invalid O1 win odds: {value!r}")
+    odds = int(normalized) / 10.0
+    return odds if odds > 1.0 else None
+
+
+def _parse_o1_rank_or_none(value: str) -> int | None:
+    normalized = value.strip()
+    if normalized in {"", "--", "**"}:
+        return None
+    return _parse_int(normalized, "popularity_rank")
+
+
+def _parse_pool_size_jpy_x100(value: str | None) -> int | None:
+    pool_size_x100 = _parse_optional_int(value, "win_pool_size_jpy_x100")
+    return pool_size_x100 * 100 if pool_size_x100 is not None else None
 
 
 def _surface_from_track_code(track_code: str | None) -> Surface:

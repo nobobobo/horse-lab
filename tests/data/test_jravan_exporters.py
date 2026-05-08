@@ -107,20 +107,32 @@ def _o1_record(**overrides: str):
     values = {
         "record_type": "O1",
         "data_kubun": "7",
+        "data_created_date": "20260508",
         "race_date": "20260508",
         "venue_code": "05",
         "kaiji": "01",
         "nichiji": "01",
         "race_number": "01",
-        "captured_date": "20260508",
-        "captured_time": "0950",
-        "horse_number": "07",
-        "win_odds": "00035",
-        "popularity_rank": "02",
-        "pool_size_jpy": "0001234567",
+        "captured_month_day_time": "05080950",
+        "registered_horse_count": "16",
+        "starter_count": "16",
+        "win_sale_flag": "7",
+        "place_sale_flag": "7",
+        "bracket_quinella_sale_flag": "7",
+        "place_payout_key": "3",
+        "win_odds_entries": _o1_win_entries(("07", "0035", "02")),
+        "win_pool_size_jpy_x100": "0000012345",
     }
     values.update(overrides)
     return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_O1_FIELDS, values))
+
+
+def _o1_win_entries(*entries: tuple[str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse_number:>2}{odds:>4}{popularity_rank:>2}"
+        for horse_number, odds, popularity_rank in entries
+    )
+    return encoded.ljust(224)
 
 
 def test_jravan_mapped_objects_round_trip_through_staging_csvs(tmp_path):
@@ -225,12 +237,15 @@ def test_write_staging_csvs_orders_rows_deterministically(tmp_path):
     kyoto_result_1 = map_se_record_to_result(
         _se_record(venue_code="08", horse_number="01", horse_id="2020123451")
     )
-    tokyo_quote_7_0950 = map_o1_record_to_odds_quote(_o1_record(horse_number="07"))
+    tokyo_quote_7_0950 = map_o1_record_to_odds_quote(_o1_record())
     tokyo_quote_7_0940 = map_o1_record_to_odds_quote(
-        _o1_record(horse_number="07", captured_time="0940", win_odds="00040")
+        _o1_record(
+            captured_month_day_time="05080940",
+            win_odds_entries=_o1_win_entries(("07", "0040", "02")),
+        )
     )
     tokyo_quote_2 = map_o1_record_to_odds_quote(
-        _o1_record(horse_number="02", captured_time="0950", win_odds="00025")
+        _o1_record(win_odds_entries=_o1_win_entries(("02", "0025", "01")))
     )
     assert tokyo_result_7 is not None
     assert tokyo_result_2 is not None

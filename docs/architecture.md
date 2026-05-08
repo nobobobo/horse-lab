@@ -122,7 +122,7 @@ The first real-data ingest path is now a local staging pipeline for JV-Data text
 
 - `horse_lab.data.jravan.ingest_jvdata_file_to_staging` reads a CP932 JV-Data dump, maps supported records, and writes canonical `races.csv`, `entries.csv`, `results.csv`, and `odds.csv`.
 - Raw JV-Data stays in CP932/Shift-JIS. Human-readable inspection copies can be converted to UTF-8, but parsing should always read the raw bytes with `encoding="cp932"` so fixed-width byte offsets remain valid.
-- The RA/SE mapper uses official JV-Data 4.9.0.1 byte positions for the minimal fields needed by the canonical schema. The O1 mapper is still a minimal placeholder until the full odds layout is wired in.
+- The RA/SE mapper uses official JV-Data 4.9.0.1 byte positions for the minimal fields needed by the canonical schema. The O1 mapper also uses the official single/place/bracket odds record layout and currently expands the win-odds block into per-runner `OddsQuote` rows.
 - `horse_lab.data.jravan.map_jvdata_records` supports the RA/SE/O1 slice and records unsupported record types as skipped records by default.
 - Duplicate RA/SE keys and duplicate O1 quote keys use last-record-wins semantics, which gives deterministic behavior for dumps containing later updates.
 - Mapping failures include source path and line number so bad vendor rows can be quarantined without guessing.
@@ -159,7 +159,7 @@ Primary path:
 2. The Windows worker downloads JV-Data and exports raw text dumps by date and data kind, for example `data/raw/jravan/YYYYMMDD/*.txt`.
 3. Sync those dumps to the Mac development environment.
 4. Run `ingest_jvdata_file_to_staging` to produce repository-compatible staging CSVs.
-5. Expand the O1 mapper from the current minimal single-runner layout to the official full O1 layout once real SDK fixtures are available.
+5. Add scheduled O1 extraction (`0B30`, `0B31`, or `0B41`) so the staging pipeline can populate `odds.csv` from real tote snapshots.
 
 Operational options for the Windows worker:
 

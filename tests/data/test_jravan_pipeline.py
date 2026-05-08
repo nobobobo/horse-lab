@@ -99,20 +99,32 @@ def _o1_text(**overrides: str) -> str:
     values = {
         "record_type": "O1",
         "data_kubun": "7",
+        "data_created_date": "20260508",
         "race_date": "20260508",
         "venue_code": "05",
         "kaiji": "01",
         "nichiji": "01",
         "race_number": "01",
-        "captured_date": "20260508",
-        "captured_time": "0950",
-        "horse_number": "07",
-        "win_odds": "00035",
-        "popularity_rank": "02",
-        "pool_size_jpy": "0001234567",
+        "captured_month_day_time": "05080950",
+        "registered_horse_count": "16",
+        "starter_count": "16",
+        "win_sale_flag": "7",
+        "place_sale_flag": "7",
+        "bracket_quinella_sale_flag": "7",
+        "place_payout_key": "3",
+        "win_odds_entries": _o1_win_entries(("07", "0035", "02")),
+        "win_pool_size_jpy_x100": "0000012345",
     }
     values.update(overrides)
     return _fixed_width_text(JRAVAN_MINIMAL_O1_FIELDS, values)
+
+
+def _o1_win_entries(*entries: tuple[str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse_number:>2}{odds:>4}{popularity_rank:>2}"
+        for horse_number, odds, popularity_rank in entries
+    )
+    return encoded.ljust(224)
 
 
 def _write_raw_file(path: Path, *lines: str) -> None:
@@ -166,9 +178,21 @@ def test_map_jvdata_records_keeps_last_duplicate_update():
             line_number=3,
         ),
         parse_jvdata_record(_se_text(horse_name="確定ホース"), line_number=4),
-        parse_jvdata_record(_o1_text(captured_time="0950", win_odds="00040"), line_number=5),
-        parse_jvdata_record(_o1_text(captured_time="0950", win_odds="00035"), line_number=6),
-        parse_jvdata_record(_o1_text(captured_time="1000", win_odds="00030"), line_number=7),
+        parse_jvdata_record(
+            _o1_text(win_odds_entries=_o1_win_entries(("07", "0040", "02"))),
+            line_number=5,
+        ),
+        parse_jvdata_record(
+            _o1_text(win_odds_entries=_o1_win_entries(("07", "0035", "02"))),
+            line_number=6,
+        ),
+        parse_jvdata_record(
+            _o1_text(
+                captured_month_day_time="05081000",
+                win_odds_entries=_o1_win_entries(("07", "0030", "01")),
+            ),
+            line_number=7,
+        ),
     ]
 
     dataset = map_jvdata_records(records)

@@ -8,7 +8,7 @@ from typing import Callable, Iterable, Mapping, TypeVar
 
 from horse_lab.data.jravan.exporters import write_staging_csvs
 from horse_lab.data.jravan.mappers import (
-    map_o1_record_to_odds_quote,
+    map_o1_record_to_odds_quotes,
     map_ra_record_to_race,
     map_se_record_to_entry,
     map_se_record_to_result,
@@ -144,14 +144,15 @@ def map_jvdata_records(
             continue
 
         if record.record_type == "O1":
-            quote = _map_record(record, map_o1_record_to_odds_quote)
-            quote_key = (
-                str(quote.race_id),
-                str(quote.runner_id),
-                quote.bet_type.value,
-                quote.captured_at.isoformat(),
-            )
-            odds_by_quote_key[quote_key] = quote
+            quotes = _map_record(record, map_o1_record_to_odds_quotes)
+            for quote in quotes:
+                quote_key = (
+                    str(quote.race_id),
+                    str(quote.runner_id),
+                    quote.bet_type.value,
+                    quote.captured_at.isoformat(),
+                )
+                odds_by_quote_key[quote_key] = quote
             continue
 
         if skip_unknown_records:

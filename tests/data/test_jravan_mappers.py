@@ -15,6 +15,7 @@ from horse_lab.data.jravan.mappers import (
     build_jravan_race_id,
     build_jravan_runner_id,
     map_o1_record_to_odds_quote,
+    map_o1_record_to_odds_quotes,
     map_ra_record_to_race,
     map_se_record_to_entry,
     map_se_record_to_result,
@@ -109,20 +110,32 @@ def _o1_record(**overrides: str):
     values = {
         "record_type": "O1",
         "data_kubun": "7",
+        "data_created_date": "20260508",
         "race_date": "20260508",
         "venue_code": "05",
         "kaiji": "01",
         "nichiji": "01",
         "race_number": "01",
-        "captured_date": "20260508",
-        "captured_time": "0950",
-        "horse_number": "07",
-        "win_odds": "00035",
-        "popularity_rank": "02",
-        "pool_size_jpy": "0001234567",
+        "captured_month_day_time": "05080950",
+        "registered_horse_count": "16",
+        "starter_count": "16",
+        "win_sale_flag": "7",
+        "place_sale_flag": "7",
+        "bracket_quinella_sale_flag": "7",
+        "place_payout_key": "3",
+        "win_odds_entries": _o1_win_entries(("07", "0035", "02")),
+        "win_pool_size_jpy_x100": "0000012345",
     }
     values.update(overrides)
     return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_O1_FIELDS, values))
+
+
+def _o1_win_entries(*entries: tuple[str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse_number:>2}{odds:>4}{popularity_rank:>2}"
+        for horse_number, odds, popularity_rank in entries
+    )
+    return encoded.ljust(224)
 
 
 def test_minimal_ra_layout_extracts_cp932_fixed_width_fields():
@@ -152,10 +165,9 @@ def test_minimal_o1_layout_extracts_fixed_width_fields():
 
     assert fields["record_type"] == "O1"
     assert fields["race_date"] == "20260508"
-    assert fields["captured_time"] == "0950"
-    assert fields["horse_number"] == "07"
-    assert fields["win_odds"] == "00035"
-    assert fields["pool_size_jpy"] == "0001234567"
+    assert fields["captured_month_day_time"] == "05080950"
+    assert fields["win_odds_entries"].startswith("07003502")
+    assert fields["win_pool_size_jpy_x100"] == "0000012345"
 
 
 def test_minimal_layout_helpers_reject_wrong_record_types():
@@ -383,13 +395,35 @@ def test_map_o1_record_to_odds_quote_maps_minimal_win_odds_schema():
     assert quote.captured_at == dt.datetime(2026, 5, 8, 9, 50)
     assert quote.odds == 3.5
     assert quote.popularity_rank == 2
-    assert quote.pool_size_jpy == 1_234_567
-    assert quote.source == "jravan_o1_minimal"
+    assert quote.pool_size_jpy == 1_234_500
+    assert quote.source == "jravan_o1_win"
+
+
+def test_map_o1_record_to_odds_quotes_maps_all_win_odds_entries():
+    quotes = map_o1_record_to_odds_quotes(
+        _o1_record(
+            win_odds_entries=_o1_win_entries(
+                ("07", "0035", "02"),
+                ("08", "0120", "01"),
+                ("09", "0000", "16"),
+            )
+        )
+    )
+
+    assert [quote.runner_id for quote in quotes] == [
+        RunnerId("2026050805010101-07"),
+        RunnerId("2026050805010101-08"),
+    ]
+    assert [quote.odds for quote in quotes] == [3.5, 12.0]
+    assert [quote.popularity_rank for quote in quotes] == [2, 1]
 
 
 def test_map_o1_record_to_odds_quote_maps_blank_optional_fields_to_none():
     quote = map_o1_record_to_odds_quote(
-        _o1_record(popularity_rank="", pool_size_jpy="")
+        _o1_record(
+            win_odds_entries=_o1_win_entries(("07", "0035", "  ")),
+            win_pool_size_jpy_x100="",
+        )
     )
 
     assert quote.popularity_rank is None
@@ -402,10 +436,12 @@ def test_map_o1_record_to_odds_quote_rejects_non_o1_record():
 
 
 def test_map_o1_record_to_odds_quote_rejects_malformed_capture_time():
-    with pytest.raises(ValueError, match="captured_time"):
-        map_o1_record_to_odds_quote(_o1_record(captured_time="09X0"))
+    with pytest.raises(ValueError, match="captured_month_day_time"):
+        map_o1_record_to_odds_quote(_o1_record(captured_month_day_time="05X80950"))
 
 
 def test_map_o1_record_to_odds_quote_rejects_invalid_odds():
     with pytest.raises(ValueError, match="odds"):
-        map_o1_record_to_odds_quote(_o1_record(win_odds="00010"))
+        map_o1_record_to_odds_quote(
+            _o1_record(win_odds_entries=_o1_win_entries(("07", "00X5", "02")))
+        )
