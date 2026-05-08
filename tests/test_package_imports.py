@@ -6,6 +6,13 @@ def test_core_package_imports():
     assert PredictionTarget.WIN_PROBABILITY.value == "win_probability"
 
 
+def test_cli_imports():
+    from horse_lab.cli import build_parser, main
+
+    assert callable(build_parser)
+    assert callable(main)
+
+
 def test_baseline_modules_import():
     from horse_lab.betting import KellyConfig, calculate_kelly_stake
     from horse_lab.backtesting import BacktestConfig, BacktestSimulator

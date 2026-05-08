@@ -139,6 +139,18 @@ export = ingest_jvdata_file_to_staging(
 print(export.csv_paths)
 ```
 
+CLI:
+
+```bash
+horse-lab jravan-ingest \
+  data/raw/jravan/20260508/jvdata.txt \
+  data/interim/jravan/20260508
+
+horse-lab jravan-preview \
+  data/raw/jravan/20260508/jvdata.txt \
+  data/raw/jravan/20260508/jvdata.utf8.txt
+```
+
 ## JRA-VAN Data Acquisition Plan
 
 Primary path:

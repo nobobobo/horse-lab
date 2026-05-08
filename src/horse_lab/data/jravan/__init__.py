@@ -42,6 +42,7 @@ from horse_lab.data.jravan.pipeline import (
     SkippedJvDataRecord,
     ingest_jvdata_file_to_staging,
     map_jvdata_records,
+    write_jvdata_utf8_preview,
 )
 from horse_lab.data.jravan.raw import (
     FixedWidthField,
@@ -83,6 +84,7 @@ __all__ = [
     "read_jvdata_records",
     "result_to_csv_row",
     "write_entries_csv",
+    "write_jvdata_utf8_preview",
     "write_odds_csv",
     "write_races_csv",
     "write_results_csv",

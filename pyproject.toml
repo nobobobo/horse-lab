@@ -10,6 +10,9 @@ readme = "docs/architecture.md"
 requires-python = ">=3.9"
 dependencies = []
 
+[project.scripts]
+horse-lab = "horse_lab.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

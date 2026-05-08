@@ -77,6 +77,37 @@ def ingest_jvdata_file_to_staging(
     return JraVanStagingExport(dataset=dataset, csv_paths=csv_paths)
 
 
+def write_jvdata_utf8_preview(
+    raw_path: Path | str,
+    output_path: Path | str,
+    *,
+    encoding: str = JV_DATA_ENCODING,
+    drop_empty_lines: bool = True,
+) -> int:
+    """Write a human-readable UTF-8 copy of a CP932 JV-Data text dump.
+
+    The preview is for inspection only. Keep the original CP932 dump as the
+    source of truth because JV-Data fixed-width offsets are byte-oriented.
+    """
+
+    raw = Path(raw_path)
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    lines_written = 0
+    with raw.open(encoding=encoding, newline="") as source:
+        with output.open("w", encoding="utf-8", newline="\n") as destination:
+            for line in source:
+                normalized = line.rstrip("\r\n")
+                if drop_empty_lines and not normalized:
+                    continue
+                destination.write(normalized)
+                destination.write("\n")
+                lines_written += 1
+
+    return lines_written
+
+
 def map_jvdata_records(
     records: Iterable[JvDataRecord],
     *,
