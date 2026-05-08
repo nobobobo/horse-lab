@@ -57,11 +57,11 @@ WEATHER_BY_CODE = {
 
 
 def build_jravan_race_id(fields: Mapping[str, str]) -> RaceId:
-    race_date = _require(fields, "race_date")
-    venue_code = _require(fields, "venue_code")
-    kaiji = _require(fields, "kaiji")
-    nichiji = _require(fields, "nichiji")
-    race_number = _require(fields, "race_number")
+    race_date = _parse_jravan_race_id_date(_require(fields, "race_date"))
+    venue_code = _require_two_digit_component(fields, "venue_code")
+    kaiji = _require_two_digit_component(fields, "kaiji")
+    nichiji = _require_two_digit_component(fields, "nichiji")
+    race_number = _require_two_digit_component(fields, "race_number")
     return RaceId(f"{race_date}{venue_code}{kaiji}{nichiji}{race_number}")
 
 
@@ -73,6 +73,7 @@ def map_ra_record_to_race(record: JvDataRecord) -> Race:
     direction_code = _optional_str(fields.get("direction_code"))
     track_condition_code = _optional_str(fields.get("track_condition_code"))
     weather_code = _optional_str(fields.get("weather_code"))
+    grade_code = _optional_str(fields.get("grade_code"))
 
     return Race(
         race_id=build_jravan_race_id(fields),
@@ -88,7 +89,7 @@ def map_ra_record_to_race(record: JvDataRecord) -> Race:
             TrackCondition.UNKNOWN,
         ),
         weather=WEATHER_BY_CODE.get(weather_code or "", _unknown_or_none(weather_code)),
-        grade=_optional_str(fields.get("grade_code")),
+        grade=grade_code,
         start_time=_parse_hhmm(race_date, fields.get("start_time", "")),
         field_size=_parse_optional_int(fields.get("field_size", ""), "field_size"),
         metadata={
@@ -101,6 +102,7 @@ def map_ra_record_to_race(record: JvDataRecord) -> Race:
             "direction_code": direction_code,
             "track_condition_code": track_condition_code,
             "weather_code": weather_code,
+            "grade_code": grade_code,
         },
     )
 
@@ -109,6 +111,13 @@ def _require(fields: Mapping[str, str], name: str) -> str:
     value = _optional_str(fields.get(name))
     if value is None:
         raise ValueError(f"Missing required JRA-VAN field: {name}")
+    return value
+
+
+def _require_two_digit_component(fields: Mapping[str, str], name: str) -> str:
+    value = _require(fields, name)
+    if len(value) != 2 or not value.isdigit():
+        raise ValueError(f"Invalid {name}: expected exactly 2 digits, got {value!r}")
     return value
 
 
@@ -132,7 +141,15 @@ def _parse_optional_int(value: str | None, field_name: str) -> int | None:
 def _parse_yyyymmdd(value: str) -> date:
     if len(value) != 8 or not value.isdigit():
         raise ValueError(f"Invalid race_date: {value!r}")
-    return date(int(value[:4]), int(value[4:6]), int(value[6:8]))
+    try:
+        return date(int(value[:4]), int(value[4:6]), int(value[6:8]))
+    except ValueError as exc:
+        raise ValueError(f"Invalid race_date: {value!r}") from exc
+
+
+def _parse_jravan_race_id_date(value: str) -> str:
+    _parse_yyyymmdd(value)
+    return value
 
 
 def _parse_hhmm(race_date: date, value: str | None) -> datetime | None:

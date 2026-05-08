@@ -129,6 +129,30 @@ def test_build_jravan_race_id_uses_date_venue_meeting_day_and_race_number():
     assert build_jravan_race_id(fields) == RaceId("2026050805010101")
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    (
+        ("kaiji", "1"),
+        ("race_number", "1"),
+    ),
+)
+def test_build_jravan_race_id_rejects_malformed_two_digit_components(
+    field_name: str,
+    value: str,
+):
+    fields = parse_minimal_ra_fields(_ra_record(**{field_name: value}))
+
+    with pytest.raises(ValueError, match=field_name):
+        build_jravan_race_id(fields)
+
+
+def test_build_jravan_race_id_rejects_invalid_race_date():
+    fields = parse_minimal_ra_fields(_ra_record(race_date="20260230"))
+
+    with pytest.raises(ValueError, match="race_date"):
+        build_jravan_race_id(fields)
+
+
 def test_map_ra_record_to_race_maps_minimal_race_schema():
     race = map_ra_record_to_race(_ra_record())
 
@@ -149,6 +173,7 @@ def test_map_ra_record_to_race_maps_minimal_race_schema():
     assert race.metadata["kaiji"] == "01"
     assert race.metadata["nichiji"] == "01"
     assert race.metadata["data_kubun"] == "7"
+    assert race.metadata["grade_code"] == "G2"
 
 
 def test_map_ra_record_to_race_preserves_unknown_codes_in_metadata():
