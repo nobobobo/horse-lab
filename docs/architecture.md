@@ -159,7 +159,14 @@ Primary path:
 2. The Windows worker downloads JV-Data and exports raw text dumps by date and data kind, for example `data/raw/jravan/YYYYMMDD/*.txt`.
 3. Sync those dumps to the Mac development environment.
 4. Run `ingest_jvdata_file_to_staging` to produce repository-compatible staging CSVs.
-5. Add scheduled O1 extraction (`0B30`, `0B31`, or `0B41`) so the staging pipeline can populate `odds.csv` from real tote snapshots.
+5. Use `JVOpen` for accumulated data such as `RACE`, and `JVRTOpen` for realtime data such as `0B30`, `0B31`, and `0B41`.
+6. Add scheduled O1 extraction so the staging pipeline can populate `odds.csv` from real tote snapshots.
+
+Current Windows worker probes:
+
+- `JvLinkDump.exe`: accumulated JV-Data via `JVOpen`, currently used for `RACE`.
+- `JvLinkRtDump.exe`: realtime JV-Data via `JVRTOpen`, currently verified for NHK Mile Cup race key `2026051005020611`.
+- Verified realtime outputs: `0B31` latest single/place/bracket odds, `0B30` all-bet odds, and `0B41` time-series single/place/bracket odds.
 
 Operational options for the Windows worker:
 
