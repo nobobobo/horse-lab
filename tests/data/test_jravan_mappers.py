@@ -1,3 +1,5 @@
+import datetime as dt
+
 import pytest
 
 from horse_lab.data.jravan import parse_jvdata_record
@@ -7,7 +9,17 @@ from horse_lab.data.jravan.layouts import (
     parse_minimal_ra_fields,
     parse_minimal_se_fields,
 )
+from horse_lab.data.jravan.mappers import (
+    build_jravan_race_id,
+    map_ra_record_to_race,
+)
 from horse_lab.data.jravan.raw import FixedWidthField
+from horse_lab.schemas import (
+    CourseDirection,
+    RaceId,
+    Surface,
+    TrackCondition,
+)
 
 
 def _fixed_width_text(
@@ -109,3 +121,57 @@ def test_minimal_layout_helpers_reject_wrong_record_types():
 
     with pytest.raises(ValueError, match="Expected SE"):
         parse_minimal_se_fields(_ra_record())
+
+
+def test_build_jravan_race_id_uses_date_venue_meeting_day_and_race_number():
+    fields = parse_minimal_ra_fields(_ra_record())
+
+    assert build_jravan_race_id(fields) == RaceId("2026050805010101")
+
+
+def test_map_ra_record_to_race_maps_minimal_race_schema():
+    race = map_ra_record_to_race(_ra_record())
+
+    assert race.race_id == RaceId("2026050805010101")
+    assert race.race_date == dt.date(2026, 5, 8)
+    assert race.venue == "Tokyo"
+    assert race.race_number == 1
+    assert race.name == "若葉ステークス"
+    assert race.surface == Surface.TURF
+    assert race.distance_m == 2000
+    assert race.direction == CourseDirection.LEFT
+    assert race.track_condition == TrackCondition.FIRM
+    assert race.weather == "sunny"
+    assert race.grade == "G2"
+    assert race.start_time == dt.datetime(2026, 5, 8, 10, 5)
+    assert race.field_size == 16
+    assert race.metadata["venue_code"] == "05"
+    assert race.metadata["kaiji"] == "01"
+    assert race.metadata["nichiji"] == "01"
+    assert race.metadata["data_kubun"] == "7"
+
+
+def test_map_ra_record_to_race_preserves_unknown_codes_in_metadata():
+    race = map_ra_record_to_race(
+        _ra_record(
+            venue_code="99",
+            surface_code="9",
+            direction_code="9",
+            track_condition_code="9",
+            weather_code="9",
+        )
+    )
+
+    assert race.venue == "unknown:99"
+    assert race.surface == Surface.UNKNOWN
+    assert race.direction == CourseDirection.UNKNOWN
+    assert race.track_condition == TrackCondition.UNKNOWN
+    assert race.weather == "unknown:9"
+    assert race.metadata["surface_code"] == "9"
+    assert race.metadata["direction_code"] == "9"
+    assert race.metadata["track_condition_code"] == "9"
+
+
+def test_map_ra_record_to_race_rejects_non_ra_record():
+    with pytest.raises(ValueError, match="Expected RA"):
+        map_ra_record_to_race(_se_record())
