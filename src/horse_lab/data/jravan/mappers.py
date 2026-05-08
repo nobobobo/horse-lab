@@ -231,6 +231,14 @@ def map_se_record_to_result(record: JvDataRecord) -> Result | None:
     if finish_position is None:
         return None
     if finish_position <= 0:
+        if _is_disqualified(fields.get("abnormal_code")):
+            return Result(
+                race_id=build_jravan_race_id(fields),
+                runner_id=build_jravan_runner_id(fields),
+                finish_position=None,
+                is_disqualified=True,
+                is_dead_heat=False,
+            )
         raise ValueError(
             f"Invalid finish_position: expected positive, got {finish_position!r}"
         )

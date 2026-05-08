@@ -164,6 +164,24 @@ def test_ingest_jvdata_file_to_staging_maps_ra_se_and_skips_unknown_records(
     assert quote.odds == 3.5
 
 
+def test_map_jvdata_records_skips_unassigned_se_records():
+    records = [
+        parse_jvdata_record(
+            _se_text(data_kubun="1", gate_number="0", horse_number="00"),
+            line_number=1,
+        ),
+        parse_jvdata_record(_se_text(), line_number=2),
+    ]
+
+    dataset = map_jvdata_records(records)
+
+    assert len(dataset.entries) == 1
+    assert len(dataset.results) == 1
+    assert dataset.skipped_records[0].record_type == "SE"
+    assert dataset.skipped_records[0].line_number == 1
+    assert dataset.skipped_records[0].reason == "unassigned_runner_key"
+
+
 def test_ingest_jvdata_files_to_staging_combines_multiple_raw_dumps(
     tmp_path: Path,
 ):
@@ -269,7 +287,7 @@ def test_ingest_jvdata_file_to_staging_wraps_mapping_errors_with_source_context(
     tmp_path: Path,
 ):
     raw_path = tmp_path / "bad-jvdata.txt"
-    _write_raw_file(raw_path, _ra_text(), _se_text(horse_number="00"))
+    _write_raw_file(raw_path, _ra_text(), _se_text(horse_number="XX"))
 
     with pytest.raises(ValueError, match=r"bad-jvdata\.txt:2.*horse_number"):
         ingest_jvdata_file_to_staging(raw_path, tmp_path / "staging")

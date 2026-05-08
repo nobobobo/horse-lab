@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 namespace HorseLab.Tools
 {
@@ -21,6 +22,8 @@ namespace HorseLab.Tools
             var outputPath = GetString(options, "--output", @"C:\horse-lab\data\raw\jravan\jvdata.txt");
             var logPath = GetString(options, "--log", @"C:\horse-lab\data\raw\jravan\jvlink_dump.log");
             var maxReadIterations = GetInt(options, "--max-read-iterations", 1000000);
+            var downloadWaitTimeoutSeconds = GetInt(options, "--download-wait-timeout-seconds", 600);
+            var downloadPollSeconds = GetInt(options, "--download-poll-seconds", 2);
 
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
             Directory.CreateDirectory(Path.GetDirectoryName(logPath));
@@ -62,6 +65,13 @@ namespace HorseLab.Tools
                 {
                     throw new InvalidOperationException(string.Format("JVOpen failed with return code {0}", openCode));
                 }
+
+                WaitForDownloads(
+                    link,
+                    logPath,
+                    downloadCount,
+                    downloadWaitTimeoutSeconds,
+                    downloadPollSeconds);
 
                 var shiftJis = Encoding.GetEncoding(932);
                 var recordChunks = 0;
@@ -199,6 +209,47 @@ namespace HorseLab.Tools
         private static void Log(string logPath, string message)
         {
             File.AppendAllText(logPath, DateTime.UtcNow.ToString("o") + " " + message + Environment.NewLine, Encoding.UTF8);
+        }
+
+        private static void WaitForDownloads(
+            dynamic link,
+            string logPath,
+            int downloadCount,
+            int timeoutSeconds,
+            int pollSeconds)
+        {
+            if (downloadCount <= 0)
+            {
+                return;
+            }
+
+            Log(logPath, string.Format("waiting for downloads downloadCount={0}", downloadCount));
+            var startedAt = DateTime.UtcNow;
+            var pollMilliseconds = Math.Max(pollSeconds, 1) * 1000;
+            while (true)
+            {
+                int status = link.JVStatus();
+                Log(logPath, string.Format("JVStatus returned {0}", status));
+                if (status < 0)
+                {
+                    throw new InvalidOperationException(string.Format("JVStatus failed with return code {0}", status));
+                }
+
+                if (status >= downloadCount)
+                {
+                    return;
+                }
+
+                if ((DateTime.UtcNow - startedAt).TotalSeconds > timeoutSeconds)
+                {
+                    throw new TimeoutException(string.Format(
+                        "Timed out waiting for JV-Link downloads: status={0} downloadCount={1}",
+                        status,
+                        downloadCount));
+                }
+
+                Thread.Sleep(pollMilliseconds);
+            }
         }
 
         private static string EscapeJson(string value)

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping, TypeVar
 
 from horse_lab.data.jravan.exporters import write_staging_csvs
+from horse_lab.data.jravan.layouts import parse_minimal_se_fields
 from horse_lab.data.jravan.mappers import (
     map_o1_record_to_odds_quotes,
     map_ra_record_to_race,
@@ -190,6 +191,17 @@ def map_jvdata_records(
             continue
 
         if record.record_type == "SE":
+            if _is_unassigned_se_record(record):
+                skipped_records.append(
+                    SkippedJvDataRecord(
+                        record_type=record.record_type,
+                        line_number=record.line_number,
+                        source_path=record.source_path,
+                        reason="unassigned_runner_key",
+                    )
+                )
+                continue
+
             entry = _map_record(record, map_se_record_to_entry)
             result = _map_record(record, map_se_record_to_result)
             entries_by_runner_id[str(entry.runner_id)] = entry
@@ -280,6 +292,11 @@ def _format_record_location(record: JvDataRecord) -> str:
     if record.line_number is None:
         return source
     return f"{source}:{record.line_number}"
+
+
+def _is_unassigned_se_record(record: JvDataRecord) -> bool:
+    fields = parse_minimal_se_fields(record)
+    return fields.get("horse_number", "").strip() in {"", "00"}
 
 
 def _iter_raw_dump_paths(

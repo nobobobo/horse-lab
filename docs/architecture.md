@@ -173,7 +173,14 @@ Current Windows worker probes:
 Operational options for the Windows worker:
 
 - Short term: borrow any Windows machine or use a Windows VM/cloud instance only for JV-Link extraction.
-- Medium term: keep a small scheduled Windows task that writes raw dumps to a shared folder.
+- Medium term: keep a small scheduled Windows task that writes raw dumps to S3.
 - Later: wrap the worker behind a thin service or artifact handoff, but keep vendor authentication and JV-Link calls outside the modeling code.
+
+S3 raw artifact lake:
+
+- Bucket: `s3://horse-lab-jravan-244306245597-apne1/`
+- Canonical raw prefix: `raw/jravan/<dataset_or_run_id>/...`
+- Keep the bucket private with public access blocked, server-side encryption enabled, and versioning enabled.
+- The current bridge can upload Windows files through a temporary presigned PUT URL. The target automation path is to attach an EC2 instance role with write access to this bucket and run `aws s3 sync` from the Windows worker.
 
 Web scraping remains a fallback only for exploratory checks. It is weaker for this project because it is more brittle, may not preserve historical point-in-time odds snapshots, and can create legal/terms-of-use risk.

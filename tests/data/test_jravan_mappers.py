@@ -375,9 +375,25 @@ def test_map_se_record_to_result_rejects_invalid_finish_position():
         map_se_record_to_result(_se_record(finish_position="XX"))
 
 
-def test_map_se_record_to_result_rejects_zero_finish_position():
+def test_map_se_record_to_result_maps_zero_finish_for_abnormal_outcome():
+    result = map_se_record_to_result(
+        _se_record(
+            abnormal_code="4",
+            finish_position="00",
+            final_time_seconds="0000",
+            prize_jpy_x100="00000000",
+        )
+    )
+
+    assert result is not None
+    assert result.finish_position is None
+    assert result.is_disqualified is True
+    assert result.did_win is False
+
+
+def test_map_se_record_to_result_rejects_zero_finish_position_without_abnormal_code():
     with pytest.raises(ValueError, match="finish_position"):
-        map_se_record_to_result(_se_record(finish_position="00"))
+        map_se_record_to_result(_se_record(abnormal_code="0", finish_position="00"))
 
 
 @pytest.mark.parametrize("field_name", ("is_dead_heat",))
