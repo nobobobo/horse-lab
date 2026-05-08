@@ -201,6 +201,8 @@ Windows worker の運用方針:
 
 注意点: JV-Link の蓄積系 `JVOpen` は `FromDate` 開始の取得であり、こちら側で厳密な `ToDate` chunk 境界を保証しにくい。そのため大規模履歴は 6か月一括よりも、短めの `FromDate` で retry しながら S3 に積む。dump が失敗した場合も `Invoke-JvLinkDumpToS3.ps1` は partial raw/log/manifest を `raw/jravan/failed/<run_id>/` に退避し、upload 成功後は local file を削除する。障害調査で local を残す場合だけ `-KeepFailedLocal` を明示する。
 
+2026-05-09 時点の実績では、`FromDate=20260401000000` の約 84MB dump は成功し、`FromDate=20260328000000` 以上の約 100MB 超 dump は `OutOfMemoryException` で失敗した。古い履歴をさらに伸ばすには、JV-Link 側でより細かい取得境界を作るか、runner を file marker ごとの分割出力に変更して COM memory pressure を下げる。
+
 S3 raw artifact lake:
 
 - Bucket: `s3://horse-lab-jravan-244306245597-apne1/`

@@ -56,6 +56,28 @@ $safeDataSpec = $DataSpec -replace '[^0-9A-Za-z_-]', '_'
 $outputPath = Join-Path $outputRoot "${safeDataSpec}_${FromDate}.txt"
 $logPath = Join-Path $outputRoot "${safeDataSpec}_${FromDate}.log"
 
+function Invoke-NativeCapture {
+    param(
+        [scriptblock]$Command
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell can promote native stderr to NativeCommandError
+        # when ErrorActionPreference is Stop. Capture stdout/stderr first so
+        # dump failures still flow through the failed-artifact upload branch.
+        $ErrorActionPreference = "Continue"
+        $output = (& $Command 2>&1 | Out-String)
+        [pscustomobject]@{
+            exitCode = $LASTEXITCODE
+            output = $output
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
 function Invoke-RawUpload {
     param(
         [string]$Prefix,
@@ -63,21 +85,25 @@ function Invoke-RawUpload {
     )
 
     if ($DeleteAfterUpload) {
-        $output = (& $UploadScriptPath `
-            -LocalRoot $outputRoot `
-            -Bucket $Bucket `
-            -Prefix $Prefix `
-            -DeleteAfterUpload 2>&1 | Out-String)
+        $upload = Invoke-NativeCapture -Command {
+            & $UploadScriptPath `
+                -LocalRoot $outputRoot `
+                -Bucket $Bucket `
+                -Prefix $Prefix `
+                -DeleteAfterUpload
+        }
     }
     else {
-        $output = (& $UploadScriptPath `
-            -LocalRoot $outputRoot `
-            -Bucket $Bucket `
-            -Prefix $Prefix 2>&1 | Out-String)
+        $upload = Invoke-NativeCapture -Command {
+            & $UploadScriptPath `
+                -LocalRoot $outputRoot `
+                -Bucket $Bucket `
+                -Prefix $Prefix
+        }
     }
     [pscustomobject]@{
-        exitCode = $LASTEXITCODE
-        output = $output
+        exitCode = $upload.exitCode
+        output = $upload.output
     }
 }
 
@@ -107,8 +133,9 @@ $dumpArgs = @(
 )
 
 $startedAt = Get-Date
-$dumpOutput = (& $RunnerPath @dumpArgs 2>&1 | Out-String)
-$dumpExitCode = $LASTEXITCODE
+$dump = Invoke-NativeCapture -Command { & $RunnerPath @dumpArgs }
+$dumpOutput = $dump.output
+$dumpExitCode = $dump.exitCode
 $finishedDumpAt = Get-Date
 
 if ($dumpExitCode -ne 0) {
