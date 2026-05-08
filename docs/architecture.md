@@ -115,3 +115,44 @@ JRA-VAN JV-Link should run in a separate Windows environment and export raw JV-D
 - `horse_lab.data.jravan` contains platform-independent raw record helpers for JV-Data text dumps.
 - `data/raw/`, `data/interim/`, and `data/processed/` are ignored by git because real vendor data should stay local.
 - Web scraping remains a fallback, not the primary ingestion path, because stable point-in-time odds snapshots matter more than quick page extraction.
+
+## Implemented JRA-VAN Staging Pipeline
+
+The first real-data ingest path is now a local staging pipeline for JV-Data text dumps.
+
+- `horse_lab.data.jravan.ingest_jvdata_file_to_staging` reads a CP932 JV-Data dump, maps supported records, and writes canonical `races.csv`, `entries.csv`, `results.csv`, and `odds.csv`.
+- Raw JV-Data stays in CP932/Shift-JIS. Human-readable inspection copies can be converted to UTF-8, but parsing should always read the raw bytes with `encoding="cp932"` so fixed-width byte offsets remain valid.
+- The RA/SE mapper uses official JV-Data 4.9.0.1 byte positions for the minimal fields needed by the canonical schema. The O1 mapper is still a minimal placeholder until the full odds layout is wired in.
+- `horse_lab.data.jravan.map_jvdata_records` supports the RA/SE/O1 slice and records unsupported record types as skipped records by default.
+- Duplicate RA/SE keys and duplicate O1 quote keys use last-record-wins semantics, which gives deterministic behavior for dumps containing later updates.
+- Mapping failures include source path and line number so bad vendor rows can be quarantined without guessing.
+
+Example:
+
+```python
+from horse_lab.data.jravan import ingest_jvdata_file_to_staging
+
+export = ingest_jvdata_file_to_staging(
+    "data/raw/jravan/20260508/jvdata.txt",
+    "data/interim/jravan/20260508",
+)
+print(export.csv_paths)
+```
+
+## JRA-VAN Data Acquisition Plan
+
+Primary path:
+
+1. Use JRA-VAN Data Lab. and the official SDK/JV-Link on a Windows environment.
+2. The Windows worker downloads JV-Data and exports raw text dumps by date and data kind, for example `data/raw/jravan/YYYYMMDD/*.txt`.
+3. Sync those dumps to the Mac development environment.
+4. Run `ingest_jvdata_file_to_staging` to produce repository-compatible staging CSVs.
+5. Expand the O1 mapper from the current minimal single-runner layout to the official full O1 layout once real SDK fixtures are available.
+
+Operational options for the Windows worker:
+
+- Short term: borrow any Windows machine or use a Windows VM/cloud instance only for JV-Link extraction.
+- Medium term: keep a small scheduled Windows task that writes raw dumps to a shared folder.
+- Later: wrap the worker behind a thin service or artifact handoff, but keep vendor authentication and JV-Link calls outside the modeling code.
+
+Web scraping remains a fallback only for exploratory checks. It is weaker for this project because it is more brittle, may not preserve historical point-in-time odds snapshots, and can create legal/terms-of-use risk.

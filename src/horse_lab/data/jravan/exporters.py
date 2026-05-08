@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from horse_lab.schemas import Entry, Race, Result
+from horse_lab.schemas import Entry, OddsQuote, Race, Result
 
 
 RACE_CSV_FIELDS: tuple[str, ...] = (
@@ -50,6 +50,17 @@ RESULT_CSV_FIELDS: tuple[str, ...] = (
     "is_dead_heat",
     "final_time_seconds",
     "prize_jpy",
+)
+
+ODDS_CSV_FIELDS: tuple[str, ...] = (
+    "race_id",
+    "runner_id",
+    "bet_type",
+    "captured_at",
+    "odds",
+    "popularity_rank",
+    "pool_size_jpy",
+    "source",
 )
 
 
@@ -100,6 +111,19 @@ def result_to_csv_row(result: Result) -> dict[str, str]:
     }
 
 
+def odds_quote_to_csv_row(quote: OddsQuote) -> dict[str, str]:
+    return {
+        "race_id": _render_csv_value(quote.race_id),
+        "runner_id": _render_csv_value(quote.runner_id),
+        "bet_type": _render_csv_value(quote.bet_type),
+        "captured_at": _render_csv_value(quote.captured_at),
+        "odds": _render_csv_value(quote.odds),
+        "popularity_rank": _render_csv_value(quote.popularity_rank),
+        "pool_size_jpy": _render_csv_value(quote.pool_size_jpy),
+        "source": _render_csv_value(quote.source),
+    }
+
+
 def write_races_csv(path: Path | str, races: Sequence[Race]) -> None:
     sorted_races = sorted(
         races,
@@ -136,22 +160,42 @@ def write_results_csv(path: Path | str, results: Sequence[Result]) -> None:
     )
 
 
+def write_odds_csv(path: Path | str, odds: Sequence[OddsQuote]) -> None:
+    sorted_odds = sorted(
+        odds,
+        key=lambda quote: (
+            str(quote.race_id),
+            str(quote.runner_id),
+            quote.captured_at,
+            quote.bet_type.value,
+        ),
+    )
+    _write_csv(
+        path,
+        ODDS_CSV_FIELDS,
+        (odds_quote_to_csv_row(quote) for quote in sorted_odds),
+    )
+
+
 def write_staging_csvs(
     directory: Path | str,
     *,
     races: Sequence[Race],
     entries: Sequence[Entry],
     results: Sequence[Result],
+    odds: Sequence[OddsQuote] = (),
 ) -> dict[str, Path]:
     target = Path(directory)
     paths = {
         "races": target / "races.csv",
         "entries": target / "entries.csv",
         "results": target / "results.csv",
+        "odds": target / "odds.csv",
     }
     write_races_csv(paths["races"], races)
     write_entries_csv(paths["entries"], entries)
     write_results_csv(paths["results"], results)
+    write_odds_csv(paths["odds"], odds)
     return paths
 
 

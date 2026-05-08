@@ -40,6 +40,10 @@ def test_jravan_ingestion_helpers_import():
     from horse_lab.data.jravan import (
         JvDataRecord,
         build_jravan_runner_id,
+        ingest_jvdata_file_to_staging,
+        map_jvdata_records,
+        map_o1_record_to_odds_quote,
+        odds_quote_to_csv_row,
         race_to_csv_row,
         map_ra_record_to_race,
         map_se_record_to_entry,
@@ -50,6 +54,10 @@ def test_jravan_ingestion_helpers_import():
 
     assert JvDataRecord.__name__ == "JvDataRecord"
     assert callable(build_jravan_runner_id)
+    assert callable(ingest_jvdata_file_to_staging)
+    assert callable(map_jvdata_records)
+    assert callable(map_o1_record_to_odds_quote)
+    assert callable(odds_quote_to_csv_row)
     assert callable(race_to_csv_row)
     assert callable(map_ra_record_to_race)
     assert callable(map_se_record_to_entry)

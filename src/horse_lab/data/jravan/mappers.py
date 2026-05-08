@@ -1,4 +1,4 @@
-"""Canonical schema mappers for minimal JRA-VAN RA and SE records."""
+"""Canonical schema mappers for minimal JRA-VAN RA, SE, and O1 records."""
 
 from __future__ import annotations
 
@@ -6,14 +6,17 @@ from datetime import date, datetime
 from typing import Mapping
 
 from horse_lab.data.jravan.layouts import (
+    parse_minimal_o1_fields,
     parse_minimal_ra_fields,
     parse_minimal_se_fields,
 )
 from horse_lab.data.jravan.raw import JvDataRecord
 from horse_lab.schemas import (
+    BetType,
     CourseDirection,
     Entry,
     HorseId,
+    OddsQuote,
     PersonId,
     Race,
     RaceId,
@@ -37,17 +40,62 @@ VENUE_BY_CODE = {
     "10": "Kokura",
 }
 
-SURFACE_BY_CODE = {
-    "1": Surface.TURF,
-    "2": Surface.DIRT,
-    "3": Surface.JUMP,
+TURF_TRACK_CODES = {
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "20",
+    "21",
+    "22",
 }
 
-DIRECTION_BY_CODE = {
-    "1": CourseDirection.RIGHT,
-    "2": CourseDirection.LEFT,
-    "3": CourseDirection.STRAIGHT,
+DIRT_TRACK_CODES = {"23", "24", "25", "26", "29"}
+
+JUMP_TRACK_CODES = {
+    "51",
+    "52",
+    "53",
+    "54",
+    "55",
+    "56",
+    "57",
+    "58",
+    "59",
 }
+
+LEFT_TRACK_CODES = {
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "23",
+    "25",
+    "27",
+    "53",
+}
+
+RIGHT_TRACK_CODES = {
+    "17",
+    "18",
+    "19",
+    "20",
+    "21",
+    "22",
+    "24",
+    "26",
+    "28",
+}
+
+STRAIGHT_TRACK_CODES = {"10", "29"}
 
 TRACK_CONDITION_BY_CODE = {
     "1": TrackCondition.FIRM,
@@ -60,7 +108,9 @@ WEATHER_BY_CODE = {
     "1": "sunny",
     "2": "cloudy",
     "3": "rain",
-    "4": "snow",
+    "4": "drizzle",
+    "5": "snow",
+    "6": "light_snow",
 }
 
 
@@ -90,9 +140,10 @@ def map_ra_record_to_race(record: JvDataRecord) -> Race:
     fields = parse_minimal_ra_fields(record)
     race_date = _parse_yyyymmdd(_require(fields, "race_date"))
     venue_code = _require(fields, "venue_code")
-    surface_code = _optional_str(fields.get("surface_code"))
-    direction_code = _optional_str(fields.get("direction_code"))
-    track_condition_code = _optional_str(fields.get("track_condition_code"))
+    track_code = _optional_str(fields.get("track_code"))
+    surface = _surface_from_track_code(track_code)
+    direction = _direction_from_track_code(track_code)
+    track_condition_code = _track_condition_code_for_surface(fields, surface)
     weather_code = _optional_str(fields.get("weather_code"))
     grade_code = _optional_str(fields.get("grade_code"))
 
@@ -102,9 +153,9 @@ def map_ra_record_to_race(record: JvDataRecord) -> Race:
         venue=VENUE_BY_CODE.get(venue_code, f"unknown:{venue_code}"),
         race_number=_parse_int(_require(fields, "race_number"), "race_number"),
         name=_optional_str(fields.get("race_name")),
-        surface=SURFACE_BY_CODE.get(surface_code or "", Surface.UNKNOWN),
+        surface=surface,
         distance_m=_parse_int(_require(fields, "distance_m"), "distance_m"),
-        direction=DIRECTION_BY_CODE.get(direction_code or "", CourseDirection.UNKNOWN),
+        direction=direction,
         track_condition=TRACK_CONDITION_BY_CODE.get(
             track_condition_code or "",
             TrackCondition.UNKNOWN,
@@ -112,16 +163,22 @@ def map_ra_record_to_race(record: JvDataRecord) -> Race:
         weather=WEATHER_BY_CODE.get(weather_code or "", _unknown_or_none(weather_code)),
         grade=grade_code,
         start_time=_parse_hhmm(race_date, fields.get("start_time", "")),
-        field_size=_parse_optional_int(fields.get("field_size", ""), "field_size"),
+        field_size=_parse_field_size(fields),
         metadata={
             "source": "jravan_minimal",
             "data_kubun": fields.get("data_kubun", ""),
+            "data_created_date": fields.get("data_created_date", ""),
             "venue_code": venue_code,
             "kaiji": fields.get("kaiji", ""),
             "nichiji": fields.get("nichiji", ""),
-            "surface_code": surface_code,
-            "direction_code": direction_code,
+            "track_code": track_code,
             "track_condition_code": track_condition_code,
+            "turf_track_condition_code": _optional_str(
+                fields.get("turf_track_condition_code")
+            ),
+            "dirt_track_condition_code": _optional_str(
+                fields.get("dirt_track_condition_code")
+            ),
             "weather_code": weather_code,
             "grade_code": grade_code,
         },
@@ -163,6 +220,10 @@ def map_se_record_to_entry(record: JvDataRecord) -> Entry:
 
 def map_se_record_to_result(record: JvDataRecord) -> Result | None:
     fields = parse_minimal_se_fields(record)
+    data_kubun = _optional_str(fields.get("data_kubun"))
+    if data_kubun in {"1", "2"}:
+        return None
+
     finish_position = _parse_optional_int(
         fields.get("finish_position"),
         "finish_position",
@@ -178,17 +239,94 @@ def map_se_record_to_result(record: JvDataRecord) -> Result | None:
         race_id=build_jravan_race_id(fields),
         runner_id=build_jravan_runner_id(fields),
         finish_position=finish_position,
-        is_disqualified=_parse_flag(
-            fields.get("is_disqualified"),
-            "is_disqualified",
-        ),
+        is_disqualified=_is_disqualified(fields.get("abnormal_code")),
         is_dead_heat=_parse_flag(fields.get("is_dead_heat"), "is_dead_heat"),
         final_time_seconds=_parse_deci_number(
             fields.get("final_time_seconds"),
             "final_time_seconds",
         ),
-        prize_jpy=_parse_optional_int(fields.get("prize_jpy"), "prize_jpy"),
+        prize_jpy=_parse_prize_jpy(fields.get("prize_jpy_x100")),
     )
+
+
+def map_o1_record_to_odds_quote(record: JvDataRecord) -> OddsQuote:
+    fields = parse_minimal_o1_fields(record)
+    captured_date = _parse_yyyymmdd(_require(fields, "captured_date"))
+
+    return OddsQuote(
+        race_id=build_jravan_race_id(fields),
+        runner_id=build_jravan_runner_id(fields),
+        bet_type=BetType.WIN,
+        captured_at=_parse_required_hhmm(
+            captured_date,
+            fields.get("captured_time"),
+            field_name="captured_time",
+        ),
+        odds=_parse_required_deci_number(fields.get("win_odds"), "win_odds"),
+        popularity_rank=_parse_optional_int(
+            fields.get("popularity_rank"),
+            "popularity_rank",
+        ),
+        pool_size_jpy=_parse_optional_int(fields.get("pool_size_jpy"), "pool_size_jpy"),
+        source="jravan_o1_minimal",
+    )
+
+
+def _surface_from_track_code(track_code: str | None) -> Surface:
+    if track_code in TURF_TRACK_CODES:
+        return Surface.TURF
+    if track_code in DIRT_TRACK_CODES:
+        return Surface.DIRT
+    if track_code in JUMP_TRACK_CODES:
+        return Surface.JUMP
+    return Surface.UNKNOWN
+
+
+def _direction_from_track_code(track_code: str | None) -> CourseDirection:
+    if track_code in LEFT_TRACK_CODES:
+        return CourseDirection.LEFT
+    if track_code in RIGHT_TRACK_CODES:
+        return CourseDirection.RIGHT
+    if track_code in STRAIGHT_TRACK_CODES:
+        return CourseDirection.STRAIGHT
+    return CourseDirection.UNKNOWN
+
+
+def _track_condition_code_for_surface(
+    fields: Mapping[str, str],
+    surface: Surface,
+) -> str | None:
+    if surface == Surface.DIRT:
+        return _optional_str(fields.get("dirt_track_condition_code"))
+    return _optional_str(fields.get("turf_track_condition_code"))
+
+
+def _parse_field_size(fields: Mapping[str, str]) -> int | None:
+    starter_count = _parse_optional_int(fields.get("starter_count"), "starter_count")
+    if starter_count is not None and starter_count > 0:
+        return starter_count
+    registered_count = _parse_optional_int(
+        fields.get("registered_horse_count"),
+        "registered_horse_count",
+    )
+    if registered_count is not None and registered_count > 0:
+        return registered_count
+    return None
+
+
+def _is_disqualified(abnormal_code: str | None) -> bool:
+    normalized = (abnormal_code or "").strip()
+    if normalized in {"", "0"}:
+        return False
+    # JV-Data abnormal codes represent non-normal outcomes. The MVP result
+    # schema only has one coarse flag, so preserve the detailed code in later
+    # schema work and use this as a conservative boolean for now.
+    return True
+
+
+def _parse_prize_jpy(value_x100: str | None) -> int | None:
+    prize_x100 = _parse_optional_int(value_x100, "prize_jpy_x100")
+    return prize_x100 * 100 if prize_x100 is not None else None
 
 
 def _require(fields: Mapping[str, str], name: str) -> str:
@@ -236,24 +374,51 @@ def _parse_jravan_race_id_date(value: str) -> str:
     return value
 
 
-def _parse_hhmm(race_date: date, value: str | None) -> datetime | None:
+def _parse_hhmm(
+    race_date: date,
+    value: str | None,
+    *,
+    field_name: str = "start_time",
+) -> datetime | None:
     normalized = _optional_str(value)
     if normalized is None:
         return None
     if len(normalized) != 4 or not normalized.isdigit():
-        raise ValueError(f"Invalid start_time: {value!r}")
-    return datetime(
-        race_date.year,
-        race_date.month,
-        race_date.day,
-        int(normalized[:2]),
-        int(normalized[2:4]),
-    )
+        raise ValueError(f"Invalid {field_name}: {value!r}")
+    try:
+        return datetime(
+            race_date.year,
+            race_date.month,
+            race_date.day,
+            int(normalized[:2]),
+            int(normalized[2:4]),
+        )
+    except ValueError as exc:
+        raise ValueError(f"Invalid {field_name}: {value!r}") from exc
+
+
+def _parse_required_hhmm(
+    race_date: date,
+    value: str | None,
+    *,
+    field_name: str,
+) -> datetime:
+    parsed = _parse_hhmm(race_date, value, field_name=field_name)
+    if parsed is None:
+        raise ValueError(f"Missing required JRA-VAN field: {field_name}")
+    return parsed
 
 
 def _parse_deci_number(value: str | None, field_name: str) -> float | None:
     normalized = _optional_str(value)
     return _parse_int(normalized, field_name) / 10.0 if normalized is not None else None
+
+
+def _parse_required_deci_number(value: str | None, field_name: str) -> float:
+    parsed = _parse_deci_number(value, field_name)
+    if parsed is None:
+        raise ValueError(f"Missing required JRA-VAN field: {field_name}")
+    return parsed
 
 
 def _parse_body_weight_diff(sign: str | None, value: str | None) -> int | None:

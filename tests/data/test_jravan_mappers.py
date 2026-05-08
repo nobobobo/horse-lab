@@ -4,14 +4,17 @@ import pytest
 
 from horse_lab.data.jravan import parse_jvdata_record
 from horse_lab.data.jravan.layouts import (
+    JRAVAN_MINIMAL_O1_FIELDS,
     JRAVAN_MINIMAL_RA_FIELDS,
     JRAVAN_MINIMAL_SE_FIELDS,
+    parse_minimal_o1_fields,
     parse_minimal_ra_fields,
     parse_minimal_se_fields,
 )
 from horse_lab.data.jravan.mappers import (
     build_jravan_race_id,
     build_jravan_runner_id,
+    map_o1_record_to_odds_quote,
     map_ra_record_to_race,
     map_se_record_to_entry,
     map_se_record_to_result,
@@ -49,20 +52,22 @@ def _ra_record(**overrides: str):
     values = {
         "record_type": "RA",
         "data_kubun": "7",
+        "data_created_date": "20260507",
         "race_date": "20260508",
         "venue_code": "05",
         "kaiji": "01",
         "nichiji": "01",
         "race_number": "01",
         "race_name": "若葉ステークス",
-        "surface_code": "1",
         "distance_m": "2000",
-        "direction_code": "2",
-        "track_condition_code": "1",
+        "track_code": "11",
+        "turf_track_condition_code": "1",
+        "dirt_track_condition_code": "0",
         "weather_code": "1",
-        "grade_code": "G2",
+        "grade_code": "B",
         "start_time": "1005",
-        "field_size": "16",
+        "registered_horse_count": "16",
+        "starter_count": "16",
     }
     values.update(overrides)
     return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_RA_FIELDS, values))
@@ -72,31 +77,52 @@ def _se_record(**overrides: str):
     values = {
         "record_type": "SE",
         "data_kubun": "7",
+        "data_created_date": "20260507",
         "race_date": "20260508",
         "venue_code": "05",
         "kaiji": "01",
         "nichiji": "01",
         "race_number": "01",
         "horse_number": "07",
-        "gate_number": "03",
+        "gate_number": "3",
         "horse_id": "2020123456",
         "horse_name": "テストホース",
         "sex_code": "2",
         "age": "04",
-        "trainer_id": "040506",
-        "jockey_id": "010203",
+        "trainer_id": "04050",
+        "jockey_id": "01020",
         "carried_weight": "565",
         "body_weight": "486",
         "body_weight_diff_sign": "-",
-        "body_weight_diff": "08",
+        "body_weight_diff": "008",
+        "abnormal_code": "0",
         "finish_position": "01",
-        "is_disqualified": "0",
         "is_dead_heat": "1",
-        "final_time_seconds": "00705",
-        "prize_jpy": "10000000",
+        "final_time_seconds": "0705",
+        "prize_jpy_x100": "00100000",
     }
     values.update(overrides)
     return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_SE_FIELDS, values))
+
+
+def _o1_record(**overrides: str):
+    values = {
+        "record_type": "O1",
+        "data_kubun": "7",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "captured_date": "20260508",
+        "captured_time": "0950",
+        "horse_number": "07",
+        "win_odds": "00035",
+        "popularity_rank": "02",
+        "pool_size_jpy": "0001234567",
+    }
+    values.update(overrides)
+    return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_O1_FIELDS, values))
 
 
 def test_minimal_ra_layout_extracts_cp932_fixed_width_fields():
@@ -106,7 +132,7 @@ def test_minimal_ra_layout_extracts_cp932_fixed_width_fields():
     assert fields["race_date"] == "20260508"
     assert fields["venue_code"] == "05"
     assert fields["race_name"] == "若葉ステークス"
-    assert fields["surface_code"] == "1"
+    assert fields["track_code"] == "11"
     assert fields["start_time"] == "1005"
 
 
@@ -118,7 +144,18 @@ def test_minimal_se_layout_extracts_cp932_fixed_width_fields():
     assert fields["horse_number"] == "07"
     assert fields["horse_name"] == "テストホース"
     assert fields["carried_weight"] == "565"
-    assert fields["final_time_seconds"] == "00705"
+    assert fields["final_time_seconds"] == "0705"
+
+
+def test_minimal_o1_layout_extracts_fixed_width_fields():
+    fields = parse_minimal_o1_fields(_o1_record())
+
+    assert fields["record_type"] == "O1"
+    assert fields["race_date"] == "20260508"
+    assert fields["captured_time"] == "0950"
+    assert fields["horse_number"] == "07"
+    assert fields["win_odds"] == "00035"
+    assert fields["pool_size_jpy"] == "0001234567"
 
 
 def test_minimal_layout_helpers_reject_wrong_record_types():
@@ -127,6 +164,9 @@ def test_minimal_layout_helpers_reject_wrong_record_types():
 
     with pytest.raises(ValueError, match="Expected SE"):
         parse_minimal_se_fields(_ra_record())
+
+    with pytest.raises(ValueError, match="Expected O1"):
+        parse_minimal_o1_fields(_ra_record())
 
 
 def test_build_jravan_race_id_uses_date_venue_meeting_day_and_race_number():
@@ -179,23 +219,23 @@ def test_map_ra_record_to_race_maps_minimal_race_schema():
     assert race.direction == CourseDirection.LEFT
     assert race.track_condition == TrackCondition.FIRM
     assert race.weather == "sunny"
-    assert race.grade == "G2"
+    assert race.grade == "B"
     assert race.start_time == dt.datetime(2026, 5, 8, 10, 5)
     assert race.field_size == 16
     assert race.metadata["venue_code"] == "05"
     assert race.metadata["kaiji"] == "01"
     assert race.metadata["nichiji"] == "01"
     assert race.metadata["data_kubun"] == "7"
-    assert race.metadata["grade_code"] == "G2"
+    assert race.metadata["grade_code"] == "B"
 
 
 def test_map_ra_record_to_race_preserves_unknown_codes_in_metadata():
     race = map_ra_record_to_race(
         _ra_record(
             venue_code="99",
-            surface_code="9",
-            direction_code="9",
-            track_condition_code="9",
+            track_code="99",
+            turf_track_condition_code="9",
+            dirt_track_condition_code="9",
             weather_code="9",
         )
     )
@@ -205,8 +245,7 @@ def test_map_ra_record_to_race_preserves_unknown_codes_in_metadata():
     assert race.direction == CourseDirection.UNKNOWN
     assert race.track_condition == TrackCondition.UNKNOWN
     assert race.weather == "unknown:9"
-    assert race.metadata["surface_code"] == "9"
-    assert race.metadata["direction_code"] == "9"
+    assert race.metadata["track_code"] == "99"
     assert race.metadata["track_condition_code"] == "9"
 
 
@@ -243,8 +282,8 @@ def test_map_se_record_to_entry_maps_minimal_entry_schema():
     assert entry.horse_id == HorseId("2020123456")
     assert entry.horse_number == 7
     assert entry.gate_number == 3
-    assert entry.jockey_id == PersonId("010203")
-    assert entry.trainer_id == PersonId("040506")
+    assert entry.jockey_id == PersonId("01020")
+    assert entry.trainer_id == PersonId("04050")
     assert entry.carried_weight_kg == 56.5
     assert entry.body_weight_kg == 486
     assert entry.body_weight_diff_kg == -8
@@ -292,7 +331,7 @@ def test_map_se_record_to_result_maps_populated_result_fields():
 
 def test_map_se_record_to_result_treats_blank_result_flags_as_false():
     result = map_se_record_to_result(
-        _se_record(is_disqualified="", is_dead_heat="")
+        _se_record(abnormal_code="", is_dead_heat="")
     )
 
     assert result is not None
@@ -304,10 +343,10 @@ def test_map_se_record_to_result_returns_none_when_finish_position_is_blank():
     result = map_se_record_to_result(
         _se_record(
             finish_position="",
-            is_disqualified="",
+            abnormal_code="",
             is_dead_heat="",
             final_time_seconds="",
-            prize_jpy="",
+            prize_jpy_x100="",
         )
     )
 
@@ -329,7 +368,44 @@ def test_map_se_record_to_result_rejects_zero_finish_position():
         map_se_record_to_result(_se_record(finish_position="00"))
 
 
-@pytest.mark.parametrize("field_name", ("is_disqualified", "is_dead_heat"))
+@pytest.mark.parametrize("field_name", ("is_dead_heat",))
 def test_map_se_record_to_result_rejects_malformed_result_flags(field_name: str):
     with pytest.raises(ValueError, match=field_name):
         map_se_record_to_result(_se_record(**{field_name: "X"}))
+
+
+def test_map_o1_record_to_odds_quote_maps_minimal_win_odds_schema():
+    quote = map_o1_record_to_odds_quote(_o1_record())
+
+    assert quote.race_id == RaceId("2026050805010101")
+    assert quote.runner_id == RunnerId("2026050805010101-07")
+    assert quote.bet_type.value == "win"
+    assert quote.captured_at == dt.datetime(2026, 5, 8, 9, 50)
+    assert quote.odds == 3.5
+    assert quote.popularity_rank == 2
+    assert quote.pool_size_jpy == 1_234_567
+    assert quote.source == "jravan_o1_minimal"
+
+
+def test_map_o1_record_to_odds_quote_maps_blank_optional_fields_to_none():
+    quote = map_o1_record_to_odds_quote(
+        _o1_record(popularity_rank="", pool_size_jpy="")
+    )
+
+    assert quote.popularity_rank is None
+    assert quote.pool_size_jpy is None
+
+
+def test_map_o1_record_to_odds_quote_rejects_non_o1_record():
+    with pytest.raises(ValueError, match="Expected O1"):
+        map_o1_record_to_odds_quote(_ra_record())
+
+
+def test_map_o1_record_to_odds_quote_rejects_malformed_capture_time():
+    with pytest.raises(ValueError, match="captured_time"):
+        map_o1_record_to_odds_quote(_o1_record(captured_time="09X0"))
+
+
+def test_map_o1_record_to_odds_quote_rejects_invalid_odds():
+    with pytest.raises(ValueError, match="odds"):
+        map_o1_record_to_odds_quote(_o1_record(win_odds="00010"))
