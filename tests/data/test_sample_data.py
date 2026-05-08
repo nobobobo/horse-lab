@@ -40,5 +40,34 @@ def test_sample_data_files_are_loadable():
     assert len(results) == 4
     assert len(features) == 4
     assert len(odds) == 5
-    assert all(quote.odds != 10.0 for quote in odds)
-    assert features[0].values[FeatureName("recent_speed")] == 72
+
+    fixture_runner_odds = [
+        quote
+        for quote in odds
+        if quote.runner_id == "202605080101-01"
+    ]
+    assert [(quote.captured_at, quote.odds) for quote in fixture_runner_odds] == [
+        (dt.datetime(2026, 5, 8, 9, 40), 4.0),
+        (dt.datetime(2026, 5, 8, 9, 50), 3.0),
+    ]
+
+    fixture_runner_features = [
+        row
+        for row in features
+        if row.runner_id == "202605080101-01"
+    ]
+    assert len(fixture_runner_features) == 1
+    assert fixture_runner_features[0].values[FeatureName("recent_speed")] == 72
+
+    entry_runner_ids = {entry.runner_id for entry in entries}
+    result_runner_ids = {result.runner_id for result in results}
+    assert result_runner_ids == entry_runner_ids
+    assert {quote.runner_id for quote in odds}.issubset(entry_runner_ids)
+    assert {row.runner_id for row in features}.issubset(entry_runner_ids)
+    assert {
+        race.race_id: race.field_size
+        for race in races
+    } == {
+        race_id: sum(1 for entry in entries if entry.race_id == race_id)
+        for race_id in race_ids
+    }
