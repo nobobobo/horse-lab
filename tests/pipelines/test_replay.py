@@ -144,6 +144,9 @@ def test_run_market_replay_returns_deterministic_sample_metrics():
     assert summary.turnover == pytest.approx(0.08)
     assert summary.max_drawdown == pytest.approx(0.0)
     assert result.backtest_result.bankroll_curve_jpy == (100_000, 102_000, 108_000)
+    assert result.probability_summary.observations == 4
+    assert result.probability_summary.positives == 2
+    assert result.probability_summary.brier_score > 0.0
 
 
 def test_run_market_replay_uses_point_in_time_market_odds():

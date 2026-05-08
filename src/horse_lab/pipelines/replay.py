@@ -13,7 +13,11 @@ from horse_lab.data.repositories import (
     RaceRepository,
     ResultRepository,
 )
-from horse_lab.evaluation import PerformanceSummary
+from horse_lab.evaluation import (
+    PerformanceSummary,
+    ProbabilitySummary,
+    summarize_win_probability_predictions,
+)
 from horse_lab.models import InferenceContext, MarketImpliedProbabilityModel
 from horse_lab.schemas import (
     BetType,
@@ -36,6 +40,7 @@ class ReplayResult:
     predictions: tuple[ModelPrediction, ...]
     backtest_result: BacktestResult
     summary: PerformanceSummary
+    probability_summary: ProbabilitySummary
 
 
 def run_market_replay(
@@ -104,6 +109,10 @@ def run_market_replay(
             kelly_config=kelly_config or KellyConfig(),
         )
     ).run(predictions=predictions, odds=odds, results=results, races=races)
+    probability_summary = summarize_win_probability_predictions(
+        predictions=predictions,
+        results=results,
+    )
 
     return ReplayResult(
         races=races,
@@ -113,6 +122,7 @@ def run_market_replay(
         predictions=predictions,
         backtest_result=backtest_result,
         summary=backtest_result.summary,
+        probability_summary=probability_summary,
     )
 
 

@@ -16,7 +16,11 @@ def test_cli_imports():
 def test_baseline_modules_import():
     from horse_lab.betting import KellyConfig, calculate_kelly_stake
     from horse_lab.backtesting import BacktestConfig, BacktestSimulator
-    from horse_lab.evaluation import PerformanceSummary
+    from horse_lab.evaluation import (
+        PerformanceSummary,
+        ProbabilitySummary,
+        summarize_win_probability_predictions,
+    )
     from horse_lab.models import MarketImpliedProbabilityModel
 
     assert KellyConfig.__name__ == "KellyConfig"
@@ -24,6 +28,8 @@ def test_baseline_modules_import():
     assert BacktestConfig.__name__ == "BacktestConfig"
     assert BacktestSimulator.__name__ == "BacktestSimulator"
     assert PerformanceSummary.__name__ == "PerformanceSummary"
+    assert ProbabilitySummary.__name__ == "ProbabilitySummary"
+    assert callable(summarize_win_probability_predictions)
     assert MarketImpliedProbabilityModel.__name__ == "MarketImpliedProbabilityModel"
 
 
@@ -46,7 +52,9 @@ def test_pipeline_imports():
 def test_jravan_ingestion_helpers_import():
     from horse_lab.data.jravan import (
         JvDataRecord,
+        build_replay_dataset_from_staging,
         build_jravan_runner_id,
+        build_jravan_s3_raw_sync_plan,
         ingest_jvdata_file_to_staging,
         map_jvdata_records,
         map_o1_record_to_odds_quote,
@@ -57,11 +65,17 @@ def test_jravan_ingestion_helpers_import():
         map_se_record_to_entry,
         map_se_record_to_result,
         parse_jvdata_record,
+        render_sync_command,
+        replay_dataset_report_to_dict,
+        sync_jravan_raw_from_s3,
+        write_feature_rows_csv,
         write_staging_csvs,
     )
 
     assert JvDataRecord.__name__ == "JvDataRecord"
+    assert callable(build_replay_dataset_from_staging)
     assert callable(build_jravan_runner_id)
+    assert callable(build_jravan_s3_raw_sync_plan)
     assert callable(ingest_jvdata_file_to_staging)
     assert callable(map_jvdata_records)
     assert callable(map_o1_record_to_odds_quote)
@@ -72,4 +86,8 @@ def test_jravan_ingestion_helpers_import():
     assert callable(map_se_record_to_entry)
     assert callable(map_se_record_to_result)
     assert callable(parse_jvdata_record)
+    assert callable(render_sync_command)
+    assert callable(replay_dataset_report_to_dict)
+    assert callable(sync_jravan_raw_from_s3)
+    assert callable(write_feature_rows_csv)
     assert callable(write_staging_csvs)

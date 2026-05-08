@@ -158,3 +158,63 @@ def test_jravan_preview_cli_can_preserve_blank_lines(
     summary = json.loads(capsys.readouterr().out)
     assert summary["lines_written"] == 2
     assert preview_path.read_text(encoding="utf-8") == "JGテスト\n\n"
+
+
+def test_jravan_s3_pull_raw_cli_dry_run_returns_sync_plan(tmp_path: Path, capsys):
+    local_raw_root = tmp_path / "raw"
+
+    assert (
+        main(
+            [
+                "jravan-s3-pull-raw",
+                "run-1",
+                str(local_raw_root),
+                "--bucket",
+                "horse-lab-test",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["s3_uri"] == "s3://horse-lab-test/raw/jravan/run-1/"
+    assert summary["local_dir"] == str(local_raw_root / "run-1")
+    assert summary["command"].startswith("aws s3 sync")
+    assert summary["executed"] is False
+    assert not (local_raw_root / "run-1").exists()
+
+
+def test_market_replay_cli_runs_replay_ready_csv_dataset(capsys):
+    sample_data = Path(__file__).resolve().parents[1] / "sample_data"
+
+    assert (
+        main(
+            [
+                "market-replay",
+                str(sample_data),
+                "--start-date",
+                "2026-05-08",
+                "--end-date",
+                "2026-05-08",
+                "--as-of",
+                "2026-05-08T09:55:00",
+                "--feature-version",
+                "fixture-v1",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["counts"] == {
+        "races": 2,
+        "feature_rows": 4,
+        "odds": 5,
+        "results": 4,
+        "predictions": 4,
+        "bet_records": 4,
+    }
+    assert summary["backtest"]["final_bankroll_jpy"] == 108_000
+    assert summary["probability"]["observations"] == 4
+    assert summary["probability"]["brier_score"] > 0.0

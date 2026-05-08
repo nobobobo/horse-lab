@@ -5,15 +5,32 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date, datetime
 from pathlib import Path
 from typing import Sequence
 
+from horse_lab.data import (
+    CsvFeatureRepository,
+    CsvOddsRepository,
+    CsvRaceRepository,
+    CsvResultRepository,
+)
 from horse_lab.data.jravan import (
+    DEFAULT_JRAVAN_S3_BUCKET,
+    DEFAULT_JRAVAN_S3_RAW_PREFIX,
+    DEFAULT_REPLAY_FEATURE_VERSION,
+    build_replay_dataset_from_staging,
+    build_jravan_s3_raw_sync_plan,
     ingest_jvdata_directory_to_staging,
     ingest_jvdata_file_to_staging,
+    render_sync_command,
+    replay_dataset_report_to_dict,
+    sync_jravan_raw_from_s3,
     write_jvdata_utf8_preview,
 )
 from horse_lab.data.jravan.raw import JV_DATA_ENCODING
+from horse_lab.evaluation import PerformanceSummary, ProbabilitySummary
+from horse_lab.pipelines import run_market_replay
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -71,6 +88,66 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fail when unsupported JV-Data record types are present.",
     )
     ingest_dir_parser.set_defaults(handler=_handle_jravan_ingest_dir)
+
+    s3_pull_parser = subparsers.add_parser(
+        "jravan-s3-pull-raw",
+        help="Sync one JRA-VAN raw run from S3 to the local raw directory.",
+    )
+    s3_pull_parser.add_argument("run_id")
+    s3_pull_parser.add_argument(
+        "local_raw_root",
+        type=Path,
+        help="Local root directory, usually data/raw/jravan.",
+    )
+    s3_pull_parser.add_argument("--bucket", default=DEFAULT_JRAVAN_S3_BUCKET)
+    s3_pull_parser.add_argument("--prefix", default=DEFAULT_JRAVAN_S3_RAW_PREFIX)
+    s3_pull_parser.add_argument("--aws-cli", default="aws")
+    s3_pull_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Return the planned aws command without executing it.",
+    )
+    s3_pull_parser.set_defaults(handler=_handle_jravan_s3_pull_raw)
+
+    replay_dataset_parser = subparsers.add_parser(
+        "jravan-build-replay-dataset",
+        help="Build complete replay-ready CSVs from JRA-VAN staging CSVs.",
+    )
+    replay_dataset_parser.add_argument("staging_dir", type=Path)
+    replay_dataset_parser.add_argument("output_dir", type=Path)
+    replay_dataset_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+        help="Feature version stamped into generated feature rows.",
+    )
+    replay_dataset_parser.add_argument(
+        "--max-odds-captured-at",
+        type=_parse_cli_datetime,
+        default=None,
+        help="Ignore odds quotes captured after this ISO timestamp.",
+    )
+    replay_dataset_parser.set_defaults(handler=_handle_jravan_build_replay_dataset)
+
+    market_replay_parser = subparsers.add_parser(
+        "market-replay",
+        help="Run the market-implied baseline over a replay-ready CSV dataset.",
+    )
+    market_replay_parser.add_argument("dataset_dir", type=Path)
+    market_replay_parser.add_argument("--start-date", type=_parse_cli_date, required=True)
+    market_replay_parser.add_argument("--end-date", type=_parse_cli_date, required=True)
+    market_replay_parser.add_argument("--as-of", type=_parse_cli_datetime, required=True)
+    market_replay_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+        help="Feature version to read from features.csv.",
+    )
+    market_replay_parser.add_argument(
+        "--initial-bankroll-jpy",
+        type=int,
+        default=100_000,
+        help="Initial bankroll used by the Kelly backtest.",
+    )
+    market_replay_parser.set_defaults(handler=_handle_market_replay)
 
     preview_parser = subparsers.add_parser(
         "jravan-preview",
@@ -137,6 +214,77 @@ def _handle_jravan_ingest_dir(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def _handle_jravan_s3_pull_raw(args: argparse.Namespace) -> dict[str, object]:
+    plan = build_jravan_s3_raw_sync_plan(
+        run_id=args.run_id,
+        local_raw_root=args.local_raw_root,
+        bucket=args.bucket,
+        prefix=args.prefix,
+        aws_cli=args.aws_cli,
+    )
+    result = sync_jravan_raw_from_s3(plan, dry_run=args.dry_run)
+    return {
+        "bucket": plan.bucket,
+        "prefix": plan.prefix,
+        "run_id": plan.run_id,
+        "s3_uri": plan.s3_uri,
+        "local_dir": str(plan.local_dir),
+        "command": render_sync_command(plan.command),
+        "executed": result.executed,
+        "returncode": result.returncode,
+    }
+
+
+def _handle_jravan_build_replay_dataset(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    export = build_replay_dataset_from_staging(
+        args.staging_dir,
+        args.output_dir,
+        feature_version=args.feature_version,
+        max_odds_captured_at=args.max_odds_captured_at,
+    )
+    return {
+        "staging_dir": str(args.staging_dir),
+        "output_dir": str(args.output_dir),
+        "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
+        "report_path": str(export.report_path),
+        "report": replay_dataset_report_to_dict(export.report),
+    }
+
+
+def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
+    dataset_dir = args.dataset_dir
+    result = run_market_replay(
+        race_repository=CsvRaceRepository(dataset_dir / "races.csv"),
+        odds_repository=CsvOddsRepository(dataset_dir / "odds.csv"),
+        result_repository=CsvResultRepository(dataset_dir / "results.csv"),
+        feature_repository=CsvFeatureRepository(dataset_dir / "features.csv"),
+        start_date=args.start_date,
+        end_date=args.end_date,
+        as_of=args.as_of,
+        feature_version=args.feature_version,
+        initial_bankroll_jpy=args.initial_bankroll_jpy,
+    )
+    return {
+        "dataset_dir": str(dataset_dir),
+        "start_date": args.start_date.isoformat(),
+        "end_date": args.end_date.isoformat(),
+        "as_of": args.as_of.isoformat(),
+        "feature_version": args.feature_version,
+        "counts": {
+            "races": len(result.races),
+            "feature_rows": len(result.feature_rows),
+            "odds": len(result.odds),
+            "results": len(result.results),
+            "predictions": len(result.predictions),
+            "bet_records": len(result.backtest_result.records),
+        },
+        "backtest": _performance_summary_to_dict(result.summary),
+        "probability": _probability_summary_to_dict(result.probability_summary),
+    }
+
+
 def _handle_jravan_preview(args: argparse.Namespace) -> dict[str, object]:
     lines_written = write_jvdata_utf8_preview(
         args.raw_path,
@@ -149,6 +297,61 @@ def _handle_jravan_preview(args: argparse.Namespace) -> dict[str, object]:
         "output_path": str(args.output_path),
         "encoding": args.encoding,
         "lines_written": lines_written,
+    }
+
+
+def _parse_cli_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected ISO date, got {value!r}") from exc
+
+
+def _parse_cli_datetime(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected ISO datetime, got {value!r}"
+        ) from exc
+
+
+def _performance_summary_to_dict(summary: PerformanceSummary) -> dict[str, object]:
+    return {
+        "total_bets": summary.total_bets,
+        "wins": summary.wins,
+        "total_staked_jpy": summary.total_staked_jpy,
+        "total_payout_jpy": summary.total_payout_jpy,
+        "net_profit_jpy": summary.net_profit_jpy,
+        "roi": summary.roi,
+        "hit_rate": summary.hit_rate,
+        "turnover": summary.turnover,
+        "max_drawdown": summary.max_drawdown,
+        "final_bankroll_jpy": summary.final_bankroll_jpy,
+    }
+
+
+def _probability_summary_to_dict(summary: ProbabilitySummary) -> dict[str, object]:
+    return {
+        "observations": summary.observations,
+        "positives": summary.positives,
+        "mean_predicted_probability": summary.mean_predicted_probability,
+        "empirical_rate": summary.empirical_rate,
+        "log_loss": summary.log_loss,
+        "brier_score": summary.brier_score,
+        "expected_calibration_error": summary.expected_calibration_error,
+        "bins": [
+            {
+                "lower_bound": calibration_bin.lower_bound,
+                "upper_bound": calibration_bin.upper_bound,
+                "count": calibration_bin.count,
+                "positives": calibration_bin.positives,
+                "mean_predicted_probability": calibration_bin.mean_predicted_probability,
+                "empirical_rate": calibration_bin.empirical_rate,
+                "absolute_error": calibration_bin.absolute_error,
+            }
+            for calibration_bin in summary.bins
+        ],
     }
 
 

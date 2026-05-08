@@ -1,6 +1,23 @@
+import datetime as dt
+import math
+
 import pytest
 
-from horse_lab.evaluation import PerformanceSummary, compute_max_drawdown, summarize_performance
+from horse_lab.evaluation import (
+    PerformanceSummary,
+    ProbabilitySummary,
+    compute_max_drawdown,
+    summarize_performance,
+    summarize_win_probability_predictions,
+)
+from horse_lab.schemas import (
+    ModelName,
+    ModelPrediction,
+    PredictionTarget,
+    RaceId,
+    Result,
+    RunnerId,
+)
 
 
 def test_compute_max_drawdown_uses_peak_to_trough_fraction():
@@ -49,3 +66,80 @@ def test_summarize_performance_handles_zero_bets():
     assert summary.roi == 0.0
     assert summary.hit_rate == 0.0
     assert summary.turnover == 0.0
+
+
+def _prediction(runner_id: str, probability: float) -> ModelPrediction:
+    return ModelPrediction(
+        race_id=RaceId("race-1"),
+        runner_id=RunnerId(runner_id),
+        model_name=ModelName("fixture"),
+        model_version="v1",
+        target=PredictionTarget.WIN_PROBABILITY,
+        probability=probability,
+        as_of=dt.datetime(2026, 5, 8, 9, 55),
+    )
+
+
+def _result(runner_id: str, finish_position: int) -> Result:
+    return Result(
+        race_id=RaceId("race-1"),
+        runner_id=RunnerId(runner_id),
+        finish_position=finish_position,
+    )
+
+
+def test_summarize_win_probability_predictions_computes_quality_metrics():
+    summary = summarize_win_probability_predictions(
+        predictions=[
+            _prediction("runner-1", 0.7),
+            _prediction("runner-2", 0.2),
+            _prediction("runner-3", 0.1),
+        ],
+        results=[
+            _result("runner-1", 1),
+            _result("runner-2", 2),
+            _result("runner-3", 3),
+        ],
+        bin_count=5,
+    )
+
+    assert isinstance(summary, ProbabilitySummary)
+    assert summary.observations == 3
+    assert summary.positives == 1
+    assert summary.mean_predicted_probability == pytest.approx(1.0 / 3.0)
+    assert summary.empirical_rate == pytest.approx(1.0 / 3.0)
+    assert summary.log_loss == pytest.approx(
+        (-math.log(0.7) - math.log(0.8) - math.log(0.9)) / 3
+    )
+    assert summary.brier_score == pytest.approx(
+        ((0.7 - 1.0) ** 2 + (0.2 - 0.0) ** 2 + (0.1 - 0.0) ** 2) / 3
+    )
+    assert len(summary.bins) == 5
+    assert summary.bins[0].count == 1
+    assert summary.bins[0].mean_predicted_probability == pytest.approx(0.1)
+    assert summary.bins[1].count == 1
+    assert summary.bins[3].count == 1
+    assert summary.expected_calibration_error == pytest.approx(
+        ((1 / 3) * 0.1) + ((1 / 3) * 0.2) + ((1 / 3) * 0.3)
+    )
+
+
+def test_summarize_win_probability_predictions_requires_matching_result():
+    with pytest.raises(ValueError, match="Missing result"):
+        summarize_win_probability_predictions(
+            predictions=[_prediction("runner-1", 0.5)],
+            results=[],
+        )
+
+
+def test_summarize_win_probability_predictions_handles_empty_predictions():
+    summary = summarize_win_probability_predictions(
+        predictions=[],
+        results=[],
+        bin_count=3,
+    )
+
+    assert summary.observations == 0
+    assert summary.log_loss == 0.0
+    assert summary.brier_score == 0.0
+    assert len(summary.bins) == 3
