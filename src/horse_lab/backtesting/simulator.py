@@ -77,6 +77,11 @@ class BacktestSimulator:
                 continue
             predictions_by_race.setdefault(prediction.race_id, []).append(prediction)
 
+        win_quotes_by_runner = _win_quotes_by_runner(odds)
+        results_by_runner = {
+            (result.race_id, result.runner_id): result for result in results
+        }
+
         race_groups = [
             sorted(
                 race_predictions,
@@ -110,7 +115,10 @@ class BacktestSimulator:
             group_profit_jpy = 0
 
             for prediction in prediction_group:
-                quote = _latest_quote_for_prediction(prediction, odds)
+                quote = _latest_quote_for_prediction(
+                    prediction,
+                    win_quotes_by_runner,
+                )
                 decision = calculate_kelly_stake(
                     probability=prediction.probability,
                     odds=quote.odds,
@@ -120,7 +128,7 @@ class BacktestSimulator:
                 if decision.stake_jpy <= 0:
                     continue
 
-                race_result = _result_for_prediction(prediction, results)
+                race_result = _result_for_prediction(prediction, results_by_runner)
                 is_win = race_result.did_win
                 payout_jpy = int(round(decision.stake_jpy * quote.odds)) if is_win else 0
                 profit_jpy = payout_jpy - decision.stake_jpy
@@ -185,24 +193,32 @@ class BacktestSimulator:
         )
 
 
+def _win_quotes_by_runner(
+    odds: Sequence[OddsQuote],
+) -> dict[tuple[RaceId, RunnerId], tuple[OddsQuote, ...]]:
+    grouped: dict[tuple[RaceId, RunnerId], list[OddsQuote]] = {}
+    for quote in odds:
+        if quote.bet_type != BetType.WIN:
+            continue
+        grouped.setdefault((quote.race_id, quote.runner_id), []).append(quote)
+    return {
+        key: tuple(sorted(values, key=lambda quote: quote.captured_at))
+        for key, values in grouped.items()
+    }
+
+
 def _latest_quote_for_prediction(
     prediction: ModelPrediction,
-    odds: Sequence[OddsQuote],
+    win_quotes_by_runner: dict[tuple[RaceId, RunnerId], tuple[OddsQuote, ...]],
 ) -> OddsQuote:
-    matching_quotes = [
-        quote
-        for quote in odds
-        if quote.race_id == prediction.race_id
-        and quote.runner_id == prediction.runner_id
-        and quote.bet_type == BetType.WIN
-        and quote.captured_at <= prediction.as_of
-    ]
-    if not matching_quotes:
-        raise ValueError(
-            "Missing odds for "
-            f"race_id={prediction.race_id!r}, runner_id={prediction.runner_id!r}"
-        )
-    return max(matching_quotes, key=lambda quote: quote.captured_at)
+    quotes = win_quotes_by_runner.get((prediction.race_id, prediction.runner_id), ())
+    for quote in reversed(quotes):
+        if quote.captured_at <= prediction.as_of:
+            return quote
+    raise ValueError(
+        "Missing odds for "
+        f"race_id={prediction.race_id!r}, runner_id={prediction.runner_id!r}"
+    )
 
 
 def _race_chronology_key(
@@ -231,11 +247,11 @@ def _race_chronology_key(
 
 def _result_for_prediction(
     prediction: ModelPrediction,
-    results: Sequence[Result],
+    results_by_runner: dict[tuple[RaceId, RunnerId], Result],
 ) -> Result:
-    for result in results:
-        if result.race_id == prediction.race_id and result.runner_id == prediction.runner_id:
-            return result
+    result = results_by_runner.get((prediction.race_id, prediction.runner_id))
+    if result is not None:
+        return result
     raise ValueError(
         "Missing result for "
         f"race_id={prediction.race_id!r}, runner_id={prediction.runner_id!r}"

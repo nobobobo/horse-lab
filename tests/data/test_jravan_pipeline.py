@@ -276,6 +276,32 @@ def test_map_jvdata_records_keeps_last_duplicate_update():
     assert [quote.odds for quote in dataset.odds] == [3.5, 3.0]
 
 
+def test_map_jvdata_records_applies_deleted_se_record():
+    records = [
+        parse_jvdata_record(_ra_text(), line_number=1),
+        parse_jvdata_record(_se_text(), line_number=2),
+        parse_jvdata_record(
+            _se_text(
+                data_kubun="9",
+                finish_position="00",
+                abnormal_code="0",
+                final_time_seconds="0000",
+                prize_jpy_x100="00000000",
+            ),
+            line_number=3,
+        ),
+    ]
+
+    dataset = map_jvdata_records(records)
+
+    assert len(dataset.races) == 1
+    assert dataset.entries == ()
+    assert dataset.results == ()
+    assert dataset.skipped_records[-1].record_type == "SE"
+    assert dataset.skipped_records[-1].line_number == 3
+    assert dataset.skipped_records[-1].reason == "deleted_runner_record"
+
+
 def test_map_jvdata_records_can_reject_unknown_record_types():
     records = [parse_jvdata_record("ZZignored", line_number=9)]
 

@@ -203,9 +203,22 @@ def map_jvdata_records(
                 continue
 
             entry = _map_record(record, map_se_record_to_entry)
+            result_key = (str(entry.race_id), str(entry.runner_id))
+            if _is_deleted_se_record(record):
+                entries_by_runner_id.pop(str(entry.runner_id), None)
+                results_by_entry_key.pop(result_key, None)
+                skipped_records.append(
+                    SkippedJvDataRecord(
+                        record_type=record.record_type,
+                        line_number=record.line_number,
+                        source_path=record.source_path,
+                        reason="deleted_runner_record",
+                    )
+                )
+                continue
+
             result = _map_record(record, map_se_record_to_result)
             entries_by_runner_id[str(entry.runner_id)] = entry
-            result_key = (str(entry.race_id), str(entry.runner_id))
             if result is None:
                 results_by_entry_key.pop(result_key, None)
             else:
@@ -297,6 +310,11 @@ def _format_record_location(record: JvDataRecord) -> str:
 def _is_unassigned_se_record(record: JvDataRecord) -> bool:
     fields = parse_minimal_se_fields(record)
     return fields.get("horse_number", "").strip() in {"", "00"}
+
+
+def _is_deleted_se_record(record: JvDataRecord) -> bool:
+    fields = parse_minimal_se_fields(record)
+    return fields.get("data_kubun", "").strip() == "9"
 
 
 def _iter_raw_dump_paths(

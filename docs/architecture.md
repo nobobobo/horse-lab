@@ -89,6 +89,7 @@
 
 最初の実行可能な baseline は依存を軽くし、単勝のみを対象にしている。
 
+- 実データ baseline の分析は `docs/baseline_analysis.md` にまとめる。
 - `horse_lab.models.market.MarketImpliedProbabilityModel` は締切前の最新単勝オッズを race 内で正規化し、runner ごとの market-implied probability に変換する。
 - `horse_lab.betting.kelly` は edge、full Kelly fraction、fractional Kelly stake fraction、円建て stake を計算する。
 - `horse_lab.backtesting.simulator.BacktestSimulator` は過去の prediction、odds、result を使って runner-level の単勝バックテストを行う。
@@ -172,6 +173,7 @@ Primary path:
 - 検証済み realtime output: `0B31` latest single/place/bracket odds、`0B30` all-bet odds、`0B41` time-series single/place/bracket odds。
 - `Invoke-JvLinkDumpToS3.ps1`: 蓄積 JV-Link extraction を実行し、run directory を S3 へ upload し、成功後に local file を削除する。
 - `Invoke-JvLinkHistoricalRangeToS3.ps1`: 3-6か月などの履歴範囲を指定して `RACE` などの蓄積 DataSpec を S3-first で収集する。
+- `Invoke-JvLinkDailyRangeToS3.ps1`: `YYYYMMDD000000-YYYYMMDD999999` の JVOpen 日次 range を日ごとに実行し、各 raw artifact を S3 に upload して local file を削除する。大規模 backfill の標準経路。
 - `Invoke-JvLinkRtRaceListToS3.ps1`: race key list の realtime odds extraction を実行し、S3 upload 後に local file を削除する。
 - `Invoke-S3RawUpload.ps1`: local raw directory を manifest 付きで S3 upload し、必要に応じて upload 後に削除する。
 - `horse-lab jravan-s3-pull-raw <run_id> data/raw/jravan`: S3 から Mac workspace へ raw run を sync する。まず `--dry-run` で実行される `aws s3 sync` を確認する。
@@ -199,9 +201,22 @@ Windows worker の運用方針:
 
 この wrapper は内部で `Invoke-JvLinkDumpToS3.ps1` を呼ぶため、upload 成功後は既定で Windows local file を削除する。Windows volume を data lake にしない方針は維持する。
 
-注意点: JV-Link の蓄積系 `JVOpen` は `FromDate` 開始の取得であり、こちら側で厳密な `ToDate` chunk 境界を保証しにくい。そのため大規模履歴は 6か月一括よりも、短めの `FromDate` で retry しながら S3 に積む。dump が失敗した場合も `Invoke-JvLinkDumpToS3.ps1` は partial raw/log/manifest を `raw/jravan/failed/<run_id>/` に退避し、upload 成功後は local file を削除する。障害調査で local を残す場合だけ `-KeepFailedLocal` を明示する。
+大規模履歴の標準 backfill は、月次・年次の巨大 dump ではなく日次 range で実行する。
 
-2026-05-09 時点の実績では、`FromDate=20260401000000` の約 84MB dump は成功し、`FromDate=20260328000000` 以上の約 100MB 超 dump は `OutOfMemoryException` で失敗した。古い履歴をさらに伸ばすには、JV-Link 側でより細かい取得境界を作るか、runner を file marker ごとの分割出力に変更して COM memory pressure を下げる。
+```powershell
+& 'C:\horse-lab\scripts\Invoke-JvLinkDailyRangeToS3.ps1' `
+  -DataSpecs RACE `
+  -StartDate 20250509 `
+  -EndDate 20260509 `
+  -RunIdPrefix backfill_RACE_20250509_20260509_v1 `
+  -SummaryOnly
+```
+
+日次 wrapper は `FromDate` に `YYYYMMDD000000-YYYYMMDD999999` を渡すため、JV-Link 側の retrieval 単位を 1 日に絞れる。各日ごとに `Invoke-JvLinkDumpToS3.ps1` を呼ぶので、upload 成功後は raw/log/manifest を Windows local から削除する。dump が失敗した場合も partial raw/log/manifest は `raw/jravan/failed/<run_id>/` に退避し、upload 成功後は local file を削除する。障害調査で local を残す場合だけ `-KeepFailedLocal` を明示する。
+
+2026-05-09 時点の実績では、`FromDate=20260401000000` の約 84MB dump は成功し、`FromDate=20260328000000` 以上の約 100MB 超 dump は `OutOfMemoryException` で失敗した。過去 1 年以上の履歴を伸ばす場合は、日次 range wrapper を第一候補にし、週次以上の粒度は smoke test で heap pressure を確認してから使う。
+
+2026-05-09 に `backfill_daily_RACE_20250509_20260509_v1` として日次 backfill を実行した。366 日を試行し、164 runs が成功、202 runs は `JVOpen` no-data/failure として `raw/jravan/failed/` に log/manifest を退避した。成功 artifact は `raw/jravan/daily/backfill_daily_RACE_20250509_20260509_v1_*` に 492 objects / 約 861MB、失敗 artifact は 404 objects / 約 352KB。Mac 側に成功 raw 164 files / 約 834MB を sync し、staging は `races=3564`、`entries=48173`、`results=47660`、`odds=47487`。complete-race replay dataset は `races=3283`、`feature_rows=45287` となり、market-implied baseline は `log_loss=0.2051`、`ECE=0.00138`、`bet_records=0` だった。`bet_records=0` は market odds を控除率込みで正規化した基準線なので自然な挙動。
 
 S3 raw artifact lake:
 

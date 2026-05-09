@@ -12,6 +12,7 @@ from horse_lab.schemas import (
     Entry,
     FeatureName,
     FeatureRow,
+    HorseId,
     OddsQuote,
     Race,
     RaceId,
@@ -90,6 +91,8 @@ class PastPerformanceFeatureBuilder:
         result_by_runner = {
             (result.race_id, result.runner_id): result for result in results
         }
+        entries_by_horse = _entries_by_horse(entries)
+        win_odds_by_runner = _win_odds_by_runner(odds)
 
         rows: list[FeatureRow] = []
         for target_entry in selected_entries:
@@ -98,12 +101,11 @@ class PastPerformanceFeatureBuilder:
                 continue
 
             target_as_of = _race_as_of(target_race)
-            win_odds_by_runner = _win_odds_by_runner(odds, target_as_of)
             past_runs = _past_runs_for_horse(
                 target_entry=target_entry,
                 target_race=target_race,
                 target_as_of=target_as_of,
-                entries=entries,
+                candidate_entries=entries_by_horse.get(target_entry.horse_id, ()),
                 race_by_id=race_by_id,
                 result_by_runner=result_by_runner,
                 win_odds_by_runner=win_odds_by_runner,
@@ -150,12 +152,19 @@ def _race_as_of(race: Race) -> datetime:
     return datetime.combine(race.race_date, time.min)
 
 
+def _entries_by_horse(entries: Sequence[Entry]) -> dict[HorseId, tuple[Entry, ...]]:
+    grouped: dict[HorseId, list[Entry]] = {}
+    for entry in entries:
+        grouped.setdefault(entry.horse_id, []).append(entry)
+    return {horse_id: tuple(values) for horse_id, values in grouped.items()}
+
+
 def _win_odds_by_runner(
-    odds: Sequence[OddsQuote], as_of: datetime
+    odds: Sequence[OddsQuote],
 ) -> dict[tuple[RaceId, RunnerId], tuple[OddsQuote, ...]]:
     grouped: dict[tuple[RaceId, RunnerId], list[OddsQuote]] = {}
     for quote in odds:
-        if quote.bet_type != BetType.WIN or quote.captured_at >= as_of:
+        if quote.bet_type != BetType.WIN:
             continue
         key = (quote.race_id, quote.runner_id)
         grouped.setdefault(key, []).append(quote)
@@ -170,15 +179,13 @@ def _past_runs_for_horse(
     target_entry: Entry,
     target_race: Race,
     target_as_of: datetime,
-    entries: Sequence[Entry],
+    candidate_entries: Sequence[Entry],
     race_by_id: dict[RaceId, Race],
     result_by_runner: dict[tuple[RaceId, RunnerId], Result],
     win_odds_by_runner: dict[tuple[RaceId, RunnerId], tuple[OddsQuote, ...]],
 ) -> tuple[_PastRun, ...]:
     past_runs: list[_PastRun] = []
-    for entry in entries:
-        if entry.horse_id != target_entry.horse_id:
-            continue
+    for entry in candidate_entries:
         if entry.runner_id == target_entry.runner_id:
             continue
 
@@ -220,8 +227,10 @@ def _latest_quote_before(
     quotes: Sequence[OddsQuote],
     as_of: datetime,
 ) -> OddsQuote | None:
-    candidates = [quote for quote in quotes if quote.captured_at < as_of]
-    return max(candidates, key=lambda quote: quote.captured_at) if candidates else None
+    for quote in reversed(quotes):
+        if quote.captured_at < as_of:
+            return quote
+    return None
 
 
 def _feature_values(

@@ -242,7 +242,7 @@ def map_se_record_to_entry(record: JvDataRecord) -> Entry:
 def map_se_record_to_result(record: JvDataRecord) -> Result | None:
     fields = parse_minimal_se_fields(record)
     data_kubun = _optional_str(fields.get("data_kubun"))
-    if data_kubun in {"1", "2"}:
+    if data_kubun in {"1", "2", "9"}:
         return None
 
     finish_position = _parse_optional_int(

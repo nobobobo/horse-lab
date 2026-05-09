@@ -378,6 +378,20 @@ def test_map_se_record_to_result_returns_none_when_finish_position_is_blank():
     assert result is None
 
 
+def test_map_se_record_to_result_returns_none_for_deleted_record():
+    result = map_se_record_to_result(
+        _se_record(
+            data_kubun="9",
+            finish_position="00",
+            abnormal_code="0",
+            final_time_seconds="0000",
+            prize_jpy_x100="00000000",
+        )
+    )
+
+    assert result is None
+
+
 def test_map_se_record_to_entry_rejects_non_se_record():
     with pytest.raises(ValueError, match="Expected SE"):
         map_se_record_to_entry(_ra_record())
