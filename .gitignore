@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 
 access_keys
+artifacts/
 
 # Real racing data can contain licensed/vendor data and should stay local.
 data/raw/

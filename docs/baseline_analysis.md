@@ -1,4 +1,4 @@
-# Baseline Analysis
+# Baseline 分析
 
 ## 対象データ
 
@@ -39,6 +39,86 @@ PYTHONPATH=src python3 -m horse_lab.cli market-replay \
 - Expected calibration error: 0.00138
 - Bet records: 0
 
+## LightGBM Baseline
+
+実行コマンド:
+
+```bash
+PYTHONPATH=src python3 -m horse_lab.cli lightgbm-train \
+  data/processed/jravan/daily_backfill_RACE_20250509_20260509_v1/replay \
+  artifacts/lightgbm/daily_backfill_RACE_20250509_20260509_v1 \
+  --train-end-date 2026-02-28 \
+  --valid-start-date 2026-03-01 \
+  --valid-end-date 2026-05-08 \
+  --as-of 2026-05-09T00:00:00
+```
+
+split:
+
+- Train: 2025-05-09 から 2026-02-28
+- Validation: 2026-03-01 から 2026-05-08
+- Train races: 2680
+- Train rows: 36788
+- Validation races: 603
+- Validation rows: 8499
+
+特徴量:
+
+- Numeric features: 24
+- Categorical features: 7
+- 主な numeric: `entry_win_odds`, `entry_popularity_rank`, `race_distance_m`, `race_field_size`, `age`, `sex`, `carried_weight_kg`, `body_weight_kg`, `days_since_last_run`, `avg_finish_position_last3`, `win_rate_last5`, `same_surface_win_rate`, `last_odds`
+- 主な categorical: `race_venue`, `race_surface`, `race_track_condition`, `race_weather`, `race_grade`, `race_direction`
+
+validation 結果:
+
+- Observations: 8499 runner rows
+- Winners: 603
+- Mean predicted probability: 0.07095
+- Empirical win rate: 0.07095
+- Log loss: 0.20706
+- Brier score: 0.05753
+- Expected calibration error: 0.00901
+
+同じ validation window の market-implied baseline:
+
+```bash
+PYTHONPATH=src python3 -m horse_lab.cli market-replay \
+  data/processed/jravan/daily_backfill_RACE_20250509_20260509_v1/replay \
+  --start-date 2026-03-01 \
+  --end-date 2026-05-08 \
+  --as-of 2026-05-09T00:00:00
+```
+
+- Observations: 8499 runner rows
+- Winners: 603
+- Mean predicted probability: 0.07095
+- Empirical win rate: 0.07095
+- Log loss: 0.20398
+- Brier score: 0.05713
+- Expected calibration error: 0.00523
+- Bet records: 0
+
+## Market vs LightGBM
+
+現時点では、market-implied baseline の方が LightGBM baseline より良い。
+
+| Model | Log loss | Brier | ECE |
+| --- | ---: | ---: | ---: |
+| Market-implied | 0.20398 | 0.05713 | 0.00523 |
+| LightGBM | 0.20706 | 0.05753 | 0.00901 |
+
+これは悪い結果ではなく、むしろ自然な初回 baseline。単勝 market は既に騎手、馬場、過去走、調教、直前気配、資金流入などの集合知を含んでいる。現在の LightGBM は初期 feature と初期 hyperparameter のみで、market feature も `entry_win_odds` / `entry_popularity_rank` に強く依存しているため、まだ市場確率を上回るほどの独自情報を持っていない。
+
+この段階での LightGBM の役割は、いきなり収益を出すことではなく、以下を検証すること。
+
+- replay dataset から point-in-time safe に学習できるか
+- race 内で勝率が 1 に正規化されるか
+- market baseline と同じ validation window で比較できるか
+- 過去走 feature が学習 pipeline に接続できるか
+- 今後の feature ablation / calibration / stacking の土台になるか
+
+次に market を超えるためには、単勝オッズの再現ではなく、market が過小評価しやすい局面を拾う feature が必要になる。優先度が高いのは、odds movement、closing-line value、距離/馬場適性、クラス変化、休み明け、斤量変化、騎手・厩舎・コース相性、取消/除外を含む field integrity の改善。
+
 ## 解釈
 
 Market-implied baseline は、単勝オッズの逆数を race 内で正規化して勝率に変換する。これは市場が持つ集合知を確率に変換した基準線であり、非 market model が最初に超えるべき benchmark になる。
@@ -66,9 +146,10 @@ Phase 2 の定義は「market-implied probability baseline と LightGBM/sklearn 
 - 過去走 feature: 初期版完了
 - 大規模 dataset での性能ボトルネック解消: 完了
 - LightGBM pipeline scaffold: 実装済み
-- LightGBM 実学習: 未実行
+- LightGBM 実学習: 完了
+- Market vs LightGBM 同一 window 比較: 完了
 
-結論として、Phase 2 は完走可能。追加データなしでも、現 dataset で初回 LightGBM baseline を train/validation できる。残タスクは `ml` optional dependency を入れて、時系列 split で `horse-lab lightgbm-train` を実行し、market baseline と比較すること。
+結論として、Phase 2 は完了。現 dataset で market-implied baseline と LightGBM baseline を同じ validation window で比較できる状態になった。
 
 推奨する最初の split:
 
@@ -78,15 +159,22 @@ Phase 2 の定義は「market-implied probability baseline と LightGBM/sklearn 
 
 Phase 2 の完了条件:
 
-- LightGBM validation log loss / Brier / calibration が保存されている
-- market baseline と同じ validation window で比較できる
-- LightGBM の特徴量重要度または feature contribution を確認できる
-- positive edge が出る場合も、まず paper backtest と calibration を優先して確認する
+- LightGBM validation log loss / Brier / calibration が保存されている: 完了
+- market baseline と同じ validation window で比較できる: 完了
+- positive edge が出る場合も、まず paper backtest と calibration を優先して確認する: 継続方針
+
+未完了だが Phase 2 blocker ではないもの:
+
+- LightGBM の特徴量重要度または feature contribution の保存
+- hyperparameter tuning
+- probability calibration の追加
+- feature ablation
+- out-of-fold prediction store
 
 ## 次の実装候補
 
-1. `lightgbm` optional dependency を導入し、現 replay dataset で初回 training を実行する。
-2. market baseline と LightGBM baseline を同じ validation window で比較する summary doc を作る。
-3. odds time series を `0B31/0B41` から追加し、closing-line value と market movement feature を作る。
-4. payout/pool を ingest し、backtest settlement と控除率検証をより厳密にする。
-5. field_size mismatch の skipped race を調査し、取消/除外 runner の扱いを改善する。
+1. LightGBM の feature importance を保存し、odds 依存度と過去走 feature の効き方を見る。
+2. odds time series を `0B31/0B41` から追加し、closing-line value と market movement feature を作る。
+3. payout/pool を ingest し、backtest settlement と控除率検証をより厳密にする。
+4. field_size mismatch の skipped race を調査し、取消/除外 runner の扱いを改善する。
+5. LightGBM の calibration と out-of-fold prediction store を作り、stacking/ensemble の Level 0 出力として使える形にする。
