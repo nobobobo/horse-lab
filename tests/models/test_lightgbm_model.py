@@ -25,6 +25,7 @@ class FakeEstimator:
         self.fit_x = None
         self.fit_y = None
         self.predict_x = None
+        self.feature_importances_ = [1.0, 0.0, 3.0, 2.0]
 
     def fit(self, x_train, y_train):
         self.fit_x = x_train
@@ -175,6 +176,40 @@ def test_lightgbm_predict_returns_race_normalized_probabilities():
         prediction.target == PredictionTarget.WIN_PROBABILITY
         for prediction in predictions
     )
+
+
+def test_lightgbm_feature_importances_returns_ranked_transformed_features():
+    fake = FakeEstimator(probabilities=[0.7, 0.3])
+    feature_rows = [
+        _feature_row("race-1", "runner-1", speed=80.0, venue="tokyo", is_favorite=True),
+        _feature_row("race-1", "runner-2", speed=72.5, venue="kyoto"),
+    ]
+    model = LightGBMWinProbabilityModel(
+        model_version="test",
+        estimator_factory=lambda random_seed: fake,
+    )
+    model.fit(
+        _dataset(
+            feature_rows,
+            [
+                _result("race-1", "runner-1", 1),
+                _result("race-1", "runner-2", 2),
+            ],
+        ),
+        context=TrainingContext(
+            train_start=dt.date(2026, 5, 1),
+            train_end=dt.date(2026, 5, 7),
+            feature_version="test-v1",
+        ),
+    )
+
+    importances = model.feature_importances()
+
+    assert importances[0]["rank"] == 1
+    assert importances[0]["feature_name"] == "is_favorite"
+    assert importances[0]["feature_type"] == "numeric"
+    assert importances[0]["split_importance"] == 3.0
+    assert importances[0]["split_fraction"] == pytest.approx(0.5)
 
 
 def test_lightgbm_fit_requires_results_metadata():

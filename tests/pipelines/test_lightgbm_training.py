@@ -12,6 +12,7 @@ class FakeEstimator:
         self.probabilities = tuple(probabilities)
         self.fit_x = None
         self.fit_y = None
+        self.feature_importances_ = [2.0, 10.0, 1.0]
 
     def fit(self, x_train, y_train):
         self.fit_x = x_train
@@ -92,10 +93,16 @@ def test_lightgbm_training_pipeline_fits_evaluates_and_saves_artifacts(tmp_path)
 
     assert (artifact_dir / "model" / "lightgbm_model.json").exists()
     assert (artifact_dir / "model" / "lightgbm_estimator.pkl").exists()
+    assert (artifact_dir / "feature_importance.csv").exists()
     summary = json.loads((artifact_dir / "evaluation_summary.json").read_text())
     assert summary["counts"]["train_feature_rows"] == 2
     assert summary["counts"]["validation_feature_rows"] == 2
     assert summary["probability"]["brier_score"] > 0.0
+    assert summary["artifact"]["feature_importance_path"] == str(
+        artifact_dir / "feature_importance.csv"
+    )
+    assert summary["feature_importances"][0]["feature_name"] == "speed"
+    assert summary["feature_importances"][0]["split_importance"] == 10.0
 
 
 def test_lightgbm_training_pipeline_rejects_overlapping_split(tmp_path):

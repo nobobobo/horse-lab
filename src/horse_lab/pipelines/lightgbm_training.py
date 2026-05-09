@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import date, datetime
 import json
@@ -59,6 +60,8 @@ class LightGBMTrainingResult:
     model_artifact: ModelArtifact
     model_path: Path
     summary_path: Path
+    feature_importance_path: Path
+    feature_importances: tuple[dict[str, Any], ...]
 
 
 def run_lightgbm_training_from_csv(
@@ -211,6 +214,8 @@ def run_lightgbm_training(
     artifact_path = Path(artifact_dir)
     model_path = artifact_path / "model"
     summary_path = artifact_path / "evaluation_summary.json"
+    feature_importance_path = artifact_path / "feature_importance.csv"
+    feature_importances = model.feature_importances()
     model.save(model_path)
 
     result = LightGBMTrainingResult(
@@ -226,7 +231,10 @@ def run_lightgbm_training(
         model_artifact=model_artifact,
         model_path=model_path,
         summary_path=summary_path,
+        feature_importance_path=feature_importance_path,
+        feature_importances=feature_importances,
     )
+    _write_feature_importance_csv(feature_importance_path, feature_importances)
     _write_json_file(summary_path, lightgbm_training_result_to_dict(result))
     return result
 
@@ -245,6 +253,7 @@ def lightgbm_training_result_to_dict(
             "target": result.model_artifact.target.value,
             "model_path": str(result.model_path),
             "summary_path": str(result.summary_path),
+            "feature_importance_path": str(result.feature_importance_path),
             "metadata": _jsonable_mapping(result.model_artifact.metadata),
         },
         "counts": {
@@ -258,6 +267,9 @@ def lightgbm_training_result_to_dict(
             "predictions": len(result.predictions),
         },
         "probability": _probability_summary_to_dict(result.probability_summary),
+        "feature_importances": [
+            _jsonable_mapping(row) for row in result.feature_importances
+        ],
     }
 
 
@@ -384,3 +396,24 @@ def _write_json_file(path: Path, payload: object) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_feature_importance_csv(
+    path: Path,
+    feature_importances: tuple[dict[str, Any], ...],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "rank",
+        "feature_name",
+        "feature_type",
+        "split_importance",
+        "gain_importance",
+        "split_fraction",
+        "gain_fraction",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in feature_importances:
+            writer.writerow({field: row.get(field, "") for field in fieldnames})

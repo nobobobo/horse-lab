@@ -160,6 +160,62 @@ class LightGBMWinProbabilityModel(BaseLevel0Model):
         with (path / "lightgbm_estimator.pkl").open("wb") as handle:
             pickle.dump(self._estimator, handle)
 
+    def feature_importances(self) -> tuple[dict[str, Any], ...]:
+        """Return trained estimator importances aligned with transformed features."""
+
+        if self._estimator is None:
+            raise ValueError(
+                "LightGBMWinProbabilityModel must be fitted before feature_importances"
+            )
+
+        feature_order = tuple(self._numeric_features) + tuple(self._categorical_features)
+        split_values = _importance_values(
+            self._estimator,
+            importance_type="split",
+            expected_length=len(feature_order),
+        )
+        gain_values = _importance_values(
+            self._estimator,
+            importance_type="gain",
+            expected_length=len(feature_order),
+        )
+        total_split = sum(split_values)
+        total_gain = sum(gain_values)
+        numeric_features = set(self._numeric_features)
+
+        rows = [
+            {
+                "feature_name": str(feature_name),
+                "feature_type": (
+                    "numeric" if feature_name in numeric_features else "categorical"
+                ),
+                "split_importance": split_importance,
+                "gain_importance": gain_importance,
+                "split_fraction": (
+                    split_importance / total_split if total_split > 0.0 else 0.0
+                ),
+                "gain_fraction": gain_importance / total_gain if total_gain > 0.0 else 0.0,
+            }
+            for feature_name, split_importance, gain_importance in zip(
+                feature_order,
+                split_values,
+                gain_values,
+            )
+        ]
+        ranked = sorted(
+            rows,
+            key=lambda row: (
+                row["gain_importance"],
+                row["split_importance"],
+                row["feature_name"],
+            ),
+            reverse=True,
+        )
+        return tuple(
+            {"rank": rank, **row}
+            for rank, row in enumerate(ranked, start=1)
+        )
+
     @classmethod
     def load(cls, path: Path) -> "LightGBMWinProbabilityModel":
         payload = json.loads((path / "lightgbm_model.json").read_text(encoding="utf-8"))
@@ -278,6 +334,30 @@ def _positive_class_probabilities(raw_probabilities: Any) -> list[float]:
             continue
         probabilities.append(float(row[1]))
     return probabilities
+
+
+def _importance_values(
+    estimator: Any,
+    *,
+    importance_type: str,
+    expected_length: int,
+) -> list[float]:
+    values = None
+    booster = getattr(estimator, "booster_", None)
+    if booster is not None and hasattr(booster, "feature_importance"):
+        try:
+            values = booster.feature_importance(importance_type=importance_type)
+        except TypeError:
+            values = None
+    if values is None and importance_type == "split":
+        values = getattr(estimator, "feature_importances_", None)
+    if values is None:
+        return [0.0] * expected_length
+
+    normalized = [float(value) for value in values]
+    if len(normalized) < expected_length:
+        normalized.extend([0.0] * (expected_length - len(normalized)))
+    return normalized[:expected_length]
 
 
 def _normalize_by_race(

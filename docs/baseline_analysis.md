@@ -66,8 +66,8 @@ split:
 
 - Numeric features: 24
 - Categorical features: 7
-- 主な numeric: `entry_win_odds`, `entry_popularity_rank`, `race_distance_m`, `race_field_size`, `age`, `sex`, `carried_weight_kg`, `body_weight_kg`, `days_since_last_run`, `avg_finish_position_last3`, `win_rate_last5`, `same_surface_win_rate`, `last_odds`
-- 主な categorical: `race_venue`, `race_surface`, `race_track_condition`, `race_weather`, `race_grade`, `race_direction`
+- 主な numeric: `entry_win_odds`, `entry_popularity_rank`, `race_distance_m`, `race_field_size`, `age`, `carried_weight_kg`, `body_weight_kg`, `days_since_last_run`, `avg_finish_position_last3`, `win_rate_last5`, `same_surface_win_rate`, `last_odds`
+- 主な categorical: `race_venue`, `race_surface`, `race_track_condition`, `race_weather`, `race_grade`, `race_direction`, `sex`
 
 validation 結果:
 
@@ -78,6 +78,25 @@ validation 結果:
 - Log loss: 0.20706
 - Brier score: 0.05753
 - Expected calibration error: 0.00901
+- Feature importance: `artifacts/lightgbm/daily_backfill_RACE_20250509_20260509_v1/feature_importance.csv`
+
+feature importance 上位:
+
+| Rank | Feature | Gain fraction | Note |
+| ---: | --- | ---: | --- |
+| 1 | `entry_win_odds` | 57.8% | market 情報が支配的 |
+| 2 | `trainer_id` | 5.3% | ID feature の扱いは要改善 |
+| 3 | `jockey_id` | 5.0% | ID feature の扱いは要改善 |
+| 4 | `body_weight_kg` | 4.4% | entry 詳細が効いている |
+| 5 | `days_since_last_run` | 3.1% | 過去走由来 feature が効いている |
+| 6 | `body_weight_diff_kg` | 2.4% | entry 詳細が効いている |
+| 7 | `horse_number` | 2.1% | 枠/馬番バイアスの候補 |
+| 8 | `avg_distance_m_last3` | 2.1% | 過去走由来 feature が効いている |
+| 9 | `avg_finish_position_last3` | 1.8% | 過去走由来 feature が効いている |
+
+`entry_win_odds` が強すぎるため、現モデルはかなり market-following。これは初回 baseline としては自然だが、期待値モデルに進むには odds movement、closing-line value、コース/距離/馬場適性、クラス変化など、market が過小評価しやすい説明変数を足す必要がある。
+
+また、`trainer_id` / `jockey_id` は現在 numeric feature として扱われている。ID の大小に順序的意味はないため、次の改善では categorical encoding または target/OOF encoding の候補にする。
 
 同じ validation window の market-implied baseline:
 
@@ -148,6 +167,7 @@ Phase 2 の定義は「market-implied probability baseline と LightGBM/sklearn 
 - LightGBM pipeline scaffold: 実装済み
 - LightGBM 実学習: 完了
 - Market vs LightGBM 同一 window 比較: 完了
+- LightGBM feature importance 保存: 完了
 
 結論として、Phase 2 は完了。現 dataset で market-implied baseline と LightGBM baseline を同じ validation window で比較できる状態になった。
 
@@ -165,15 +185,15 @@ Phase 2 の完了条件:
 
 未完了だが Phase 2 blocker ではないもの:
 
-- LightGBM の特徴量重要度または feature contribution の保存
 - hyperparameter tuning
 - probability calibration の追加
 - feature ablation
 - out-of-fold prediction store
+- ID feature の categorical/target encoding
 
 ## 次の実装候補
 
-1. LightGBM の feature importance を保存し、odds 依存度と過去走 feature の効き方を見る。
+1. `jockey_id` / `trainer_id` の categorical/OOF encoding を設計し、ID の大小を数値として読ませない。
 2. odds time series を `0B31/0B41` から追加し、closing-line value と market movement feature を作る。
 3. payout/pool を ingest し、backtest settlement と控除率検証をより厳密にする。
 4. field_size mismatch の skipped race を調査し、取消/除外 runner の扱いを改善する。
