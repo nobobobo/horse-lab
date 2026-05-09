@@ -71,6 +71,15 @@ def test_lightgbm_training_pipeline_fits_evaluates_and_saves_artifacts(tmp_path)
     dataset_dir = tmp_path / "dataset"
     artifact_dir = tmp_path / "artifacts"
     _write_replay_dataset(dataset_dir)
+    _write(
+        dataset_dir / "odds_timeseries.csv",
+        """
+race_id,runner_id,bet_type,captured_at,odds,popularity_rank,pool_size_jpy,source
+race-valid,valid-1,win,2026-05-08T09:45:00,2.4,1,900,fixture
+race-valid,valid-1,win,2026-05-08T09:55:00,2.0,1,1000,fixture
+race-valid,valid-2,win,2026-05-08T09:55:00,3.0,2,1000,fixture
+""",
+    )
     fake = FakeEstimator(probabilities=[0.8, 0.2])
 
     result = run_lightgbm_training_from_csv(
@@ -86,6 +95,7 @@ def test_lightgbm_training_pipeline_fits_evaluates_and_saves_artifacts(tmp_path)
 
     assert fake.fit_y == [1, 0]
     assert len(fake.fit_x) == 2
+    assert len(result.validation_odds) == 3
     assert len(result.predictions) == 2
     assert result.probability_summary.observations == 2
     assert result.probability_summary.positives == 1

@@ -1,4 +1,4 @@
-"""Canonical schema mappers for minimal JRA-VAN RA, SE, and O1 records."""
+"""Canonical schema mappers for minimal JRA-VAN RA, SE, O1, and O2 records."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Iterable, Mapping
 
 from horse_lab.data.jravan.layouts import (
     parse_minimal_o1_fields,
+    parse_minimal_o2_fields,
     parse_minimal_ra_fields,
     parse_minimal_se_fields,
 )
@@ -308,6 +309,41 @@ def map_o1_record_to_odds_quote(record: JvDataRecord) -> OddsQuote:
     return quotes[0]
 
 
+def map_o2_record_to_odds_quotes(record: JvDataRecord) -> tuple[OddsQuote, ...]:
+    fields = parse_minimal_o2_fields(record)
+    race_id = build_jravan_race_id(fields)
+    captured_at = _parse_o1_captured_at(fields)
+    pool_size_jpy = _parse_pool_size_jpy_x100(
+        fields.get("quinella_pool_size_jpy_x100"),
+        field_name="quinella_pool_size_jpy_x100",
+    )
+    quotes: list[OddsQuote] = []
+
+    for horse1, horse2, odds, popularity_rank in _iter_o2_quinella_odds_entries(
+        fields
+    ):
+        quote = OddsQuote(
+            race_id=race_id,
+            runner_id=RunnerId(f"{race_id}-{horse1}_{horse2}"),
+            bet_type=BetType.QUINELLA,
+            captured_at=captured_at,
+            odds=odds,
+            popularity_rank=popularity_rank,
+            pool_size_jpy=pool_size_jpy,
+            source="jravan_o2_quinella",
+        )
+        quotes.append(quote)
+
+    return tuple(quotes)
+
+
+def map_o2_record_to_odds_quote(record: JvDataRecord) -> OddsQuote:
+    quotes = map_o2_record_to_odds_quotes(record)
+    if not quotes:
+        raise ValueError("O2 record contains no supported quinella odds quotes")
+    return quotes[0]
+
+
 def _iter_o1_win_odds_entries(
     fields: Mapping[str, str],
 ) -> Iterable[tuple[str, float, int | None]]:
@@ -326,6 +362,34 @@ def _iter_o1_win_odds_entries(
             raise ValueError(f"Invalid O1 horse_number: {horse_number!r}")
         popularity_rank = _parse_o1_rank_or_none(entry[6:8])
         yield horse_number, odds, popularity_rank
+
+
+def _iter_o2_quinella_odds_entries(
+    fields: Mapping[str, str],
+) -> Iterable[tuple[str, str, float, int | None]]:
+    block = fields.get("quinella_odds_entries", "")
+    raw_bytes = block.encode("cp932")
+    for index in range(153):
+        entry_bytes = raw_bytes[index * 13 : (index + 1) * 13]
+        if not entry_bytes.strip():
+            continue
+        entry = entry_bytes.decode("cp932")
+        horse1 = entry[0:2].strip()
+        horse2 = entry[2:4].strip()
+        odds = _parse_o2_odds_or_none(entry[4:11])
+        if odds is None:
+            continue
+        _validate_o2_pair_horse_number(horse1, "horse1")
+        _validate_o2_pair_horse_number(horse2, "horse2")
+        if horse1 == horse2:
+            raise ValueError(f"Invalid O2 quinella pair: {horse1!r}_{horse2!r}")
+        popularity_rank = _parse_o2_rank_or_none(entry[11:13])
+        yield horse1, horse2, odds, popularity_rank
+
+
+def _validate_o2_pair_horse_number(value: str, field_name: str) -> None:
+    if len(value) != 2 or not value.isdigit() or value == "00":
+        raise ValueError(f"Invalid O2 {field_name}: {value!r}")
 
 
 def _parse_o1_captured_at(fields: Mapping[str, str]) -> datetime:
@@ -366,6 +430,21 @@ def _parse_o1_odds_or_none(value: str) -> float | None:
     return odds if odds > 1.0 else None
 
 
+def _parse_o2_odds_or_none(value: str) -> float | None:
+    normalized = value.strip()
+    if (
+        normalized == ""
+        or set(normalized) == {"0"}
+        or set(normalized) == {"-"}
+        or set(normalized) == {"*"}
+    ):
+        return None
+    if not normalized.isdigit():
+        raise ValueError(f"Invalid O2 quinella odds: {value!r}")
+    odds = int(normalized) / 10.0
+    return odds if odds > 1.0 else None
+
+
 def _sex_value_from_code(code: str | None) -> str | None:
     sex = SEX_BY_CODE.get(code or "")
     return sex.value if sex is not None else _unknown_or_none(code)
@@ -378,8 +457,19 @@ def _parse_o1_rank_or_none(value: str) -> int | None:
     return _parse_int(normalized, "popularity_rank")
 
 
-def _parse_pool_size_jpy_x100(value: str | None) -> int | None:
-    pool_size_x100 = _parse_optional_int(value, "win_pool_size_jpy_x100")
+def _parse_o2_rank_or_none(value: str) -> int | None:
+    normalized = value.strip()
+    if normalized in {"", "---", "***"}:
+        return None
+    return _parse_int(normalized, "popularity_rank")
+
+
+def _parse_pool_size_jpy_x100(
+    value: str | None,
+    *,
+    field_name: str = "win_pool_size_jpy_x100",
+) -> int | None:
+    pool_size_x100 = _parse_optional_int(value, field_name)
     return pool_size_x100 * 100 if pool_size_x100 is not None else None
 
 

@@ -63,7 +63,7 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - Person stats: 騎手/調教師の target race 前 run count / win rate。
 - Categorical-safe IDs: `jockey:01020` / `trainer:04050` のように ID を順序数として扱わせない。
 
-現 `RACE` daily backfill では O1 odds が runner あたり 1 snapshot のため、`odds_open`、`odds_latest`、`odds_min`、`odds_max` が同値になり、movement 系特徴量は実質ゼロ情報になる。CLV と market movement を評価するには、`0B31/0B41` の realtime odds を日次で蓄積する必要がある。
+現 `RACE` daily backfill では O1 odds が runner あたり 1 snapshot のため、`odds_open`、`odds_latest`、`odds_min`、`odds_max` が同値になり、movement 系特徴量は実質ゼロ情報になる。CLV と market movement を評価するには、`0B31/0B41` の realtime odds を日次で蓄積する必要がある。`0B41` O1 staging は `build_replay_dataset_from_staging(..., odds_staging_dirs=...)` で RACE staging の race/entry/result に odds だけ追加合流できる。
 
 ## Phase Status
 

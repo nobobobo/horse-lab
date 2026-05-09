@@ -137,6 +137,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Ignore odds quotes captured after this ISO timestamp.",
     )
+    replay_dataset_parser.add_argument(
+        "--odds-staging-dir",
+        action="append",
+        type=Path,
+        default=None,
+        help=(
+            "Additional staging directory to merge odds.csv from. "
+            "Can be supplied multiple times."
+        ),
+    )
     replay_dataset_parser.set_defaults(handler=_handle_jravan_build_replay_dataset)
 
     market_replay_parser = subparsers.add_parser(
@@ -349,6 +359,7 @@ def _handle_jravan_build_replay_dataset(
         args.output_dir,
         feature_version=args.feature_version,
         max_odds_captured_at=args.max_odds_captured_at,
+        odds_staging_dirs=args.odds_staging_dir,
     )
     return {
         "staging_dir": str(args.staging_dir),
@@ -364,7 +375,7 @@ def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
     backtest_config = _backtest_config_from_args(args)
     result = run_market_replay(
         race_repository=CsvRaceRepository(dataset_dir / "races.csv"),
-        odds_repository=CsvOddsRepository(dataset_dir / "odds.csv"),
+        odds_repository=CsvOddsRepository(_replay_odds_csv_path(dataset_dir)),
         result_repository=CsvResultRepository(dataset_dir / "results.csv"),
         feature_repository=CsvFeatureRepository(dataset_dir / "features.csv"),
         start_date=args.start_date,
@@ -403,6 +414,13 @@ def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
             "decision_report_path": str(paths.decision_report_path),
         }
     return summary
+
+
+def _replay_odds_csv_path(dataset_dir: Path) -> Path:
+    odds_timeseries_path = dataset_dir / "odds_timeseries.csv"
+    if odds_timeseries_path.exists():
+        return odds_timeseries_path
+    return dataset_dir / "odds.csv"
 
 
 def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:

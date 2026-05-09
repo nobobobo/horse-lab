@@ -74,6 +74,8 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - expanded past-performance features: top3 rate、平均賞金、平均走破時計、同距離成績、距離変化、前走条件、馬体重。
 - jockey/trainer historical stats: target race より前の run count / win rate。
 - categorical-safe person IDs: `jockey:01020` / `trainer:04050` のように ID を順序数として読ませない。
+- `0B41` / `0B42` historical backfill: 単勝/複勝/枠連と馬連の realtime odds raw を S3 に日付単位で保存する。単勝モデルの replay には `0B41` の win snapshot だけを合流し、`0B42` は馬連/多点式 simulation 用の raw/staging として分離する。
+- `RACE` staging と realtime odds staging は `jravan-build-replay-dataset --odds-staging-dir ...` で合流する。race/entry/result は `RACE` を正本、odds は追加 staging から補強する。
 - `jravan-replay-v2` 実データ smoke build と LightGBM training は完了。現 backfill は runner あたり 1 odds snapshot のため、odds movement / CLV の本格評価には realtime odds の継続蓄積が必要。
 
 ### Phase 4: Ensemble 次フェーズ
@@ -97,6 +99,8 @@ Phase 4 は以下が揃ってから入る。
 - JV-Link は Windows worker で実行する。
 - raw dump、stdout/stderr、manifest は S3 に upload し、成功後に Windows local file を削除する。
 - `RACE` など蓄積系は `JVOpen`、`0B31/0B41` など realtime odds は `JVRTOpen` を使う。
+- 過去1年の MVP backfill は `0B41` と `0B42` を日次粒度で S3 に保存する。Windows local disk の肥大化を避けるため、各日付を upload したら local output を削除する。
+- 将来の三連単/三連複 simulation 向けに `0B30` は保存期間内に日次または時間帯別で自動蓄積する。推奨は EventBridge Scheduler + SSM Run Command + EC2 start/stop で、worker は収集時だけ起動する。
 - Mac 開発環境は必要な run だけを S3 から local `data/raw/` に sync する。
 - `data/raw/`、`data/interim/`、`data/processed/`、`artifacts/` は git 管理しない。
 
@@ -106,6 +110,7 @@ Phase 4 は以下が揃ってから入る。
 horse-lab jravan-s3-pull-raw <run_id> data/raw/jravan
 horse-lab jravan-ingest-dir data/raw/jravan/<run_id> data/interim/jravan/<run_id>
 horse-lab jravan-build-replay-dataset data/interim/jravan/<run_id> data/processed/jravan/<run_id>/replay
+horse-lab jravan-build-replay-dataset data/interim/jravan/<race_run_id> data/processed/jravan/<run_id>/replay --odds-staging-dir data/interim/jravan/<odds_run_id>
 horse-lab market-replay data/processed/jravan/<run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-train data/processed/jravan/<run_id>/replay artifacts/lightgbm/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 ```

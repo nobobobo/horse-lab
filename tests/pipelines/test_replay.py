@@ -81,13 +81,18 @@ def _feature_row(runner_id):
     )
 
 
-def _quote(runner_id):
+def _quote(
+    runner_id,
+    *,
+    odds=2.0,
+    captured_at=dt.datetime(2026, 5, 8, 9, 55),
+):
     return OddsQuote(
         race_id=RaceId("race-1"),
         runner_id=RunnerId(runner_id),
         bet_type=BetType.WIN,
-        captured_at=dt.datetime(2026, 5, 8, 9, 55),
-        odds=2.0,
+        captured_at=captured_at,
+        odds=odds,
     )
 
 
@@ -164,6 +169,39 @@ def test_run_market_replay_uses_point_in_time_market_odds():
     by_runner = {prediction.runner_id: prediction for prediction in result.predictions}
 
     assert by_runner[RunnerId("202605080101-01")].metadata["market_odds"] == 3.0
+
+
+def test_run_market_replay_accepts_odds_timeseries_rows():
+    result = _run_replay_with_rows(
+        races=[_race(field_size=2)],
+        feature_rows=[_feature_row("runner-1"), _feature_row("runner-2")],
+        odds=[
+            _quote(
+                "runner-1",
+                odds=4.0,
+                captured_at=dt.datetime(2026, 5, 8, 9, 35),
+            ),
+            _quote(
+                "runner-1",
+                odds=3.0,
+                captured_at=dt.datetime(2026, 5, 8, 9, 55),
+            ),
+            _quote(
+                "runner-2",
+                odds=2.0,
+                captured_at=dt.datetime(2026, 5, 8, 9, 55),
+            ),
+        ],
+        results=[_result("runner-1", 2), _result("runner-2", 1)],
+    )
+
+    by_runner = {prediction.runner_id: prediction for prediction in result.predictions}
+
+    assert len(result.odds) == 3
+    assert by_runner[RunnerId("runner-1")].metadata["market_odds"] == 3.0
+    assert by_runner[RunnerId("runner-1")].metadata["odds_captured_at"] == (
+        "2026-05-08T09:55:00"
+    )
 
 
 def test_run_market_replay_rejects_feature_count_that_does_not_match_field_size():

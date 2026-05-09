@@ -10,6 +10,8 @@ param(
 
     [string]$AwsPath = "C:\Program Files\Amazon\AWSCLIV2\aws.exe",
 
+    [switch]$UseSync,
+
     [switch]$DeleteAfterUpload,
 
     [string]$ManifestPath = "",
@@ -39,36 +41,96 @@ $files = foreach ($pattern in $IncludePatterns) {
 
 $uniqueFiles = $files | Sort-Object FullName -Unique
 
-foreach ($file in $uniqueFiles) {
-    $relativePath = $file.FullName.Substring($root.Path.Length).TrimStart("\", "/")
-    $s3Key = ($normalizedPrefix + "/" + ($relativePath -replace "\\", "/")).TrimStart("/")
-    $s3Uri = "s3://$Bucket/$s3Key"
-
-    & $AwsPath s3 cp $file.FullName $s3Uri --only-show-errors --sse AES256
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -eq 0) {
-        $record = [pscustomobject]@{
-            localPath = $file.FullName
-            s3Uri = $s3Uri
-            bytes = $file.Length
-            uploadedAt = (Get-Date).ToUniversalTime().ToString("o")
-            deletedLocal = $false
-        }
-
-        if ($DeleteAfterUpload) {
-            Remove-Item -LiteralPath $file.FullName -Force
-            $record.deletedLocal = $true
-        }
-
-        $uploaded.Add($record) | Out-Null
+if ($UseSync) {
+    $syncUri = "s3://$Bucket/$normalizedPrefix"
+    $syncArgs = @(
+        "s3", "sync",
+        $root.Path,
+        $syncUri,
+        "--only-show-errors",
+        "--sse", "AES256",
+        "--exclude", "*"
+    )
+    foreach ($pattern in $IncludePatterns) {
+        $syncArgs += @("--include", $pattern)
     }
-    else {
-        $failed.Add([pscustomobject]@{
-            localPath = $file.FullName
-            s3Uri = $s3Uri
-            exitCode = $exitCode
-        }) | Out-Null
+
+    & $AwsPath @syncArgs
+    $syncExitCode = $LASTEXITCODE
+
+    foreach ($file in $uniqueFiles) {
+        $relativePath = $file.FullName.Substring($root.Path.Length).TrimStart("\", "/")
+        $s3Key = ($normalizedPrefix + "/" + ($relativePath -replace "\\", "/")).TrimStart("/")
+        $s3Uri = "s3://$Bucket/$s3Key"
+
+        if ($syncExitCode -eq 0) {
+            $record = [pscustomobject]@{
+                localPath = $file.FullName
+                s3Uri = $s3Uri
+                bytes = $file.Length
+                uploadedAt = (Get-Date).ToUniversalTime().ToString("o")
+                deletedLocal = $false
+            }
+
+            if ($DeleteAfterUpload) {
+                Remove-Item -LiteralPath $file.FullName -Force
+                $record.deletedLocal = $true
+            }
+
+            $uploaded.Add($record) | Out-Null
+        }
+        else {
+            $failed.Add([pscustomobject]@{
+                localPath = $file.FullName
+                s3Uri = $s3Uri
+                exitCode = $syncExitCode
+            }) | Out-Null
+        }
+    }
+}
+else {
+    foreach ($file in $uniqueFiles) {
+        $relativePath = $file.FullName.Substring($root.Path.Length).TrimStart("\", "/")
+        $s3Key = ($normalizedPrefix + "/" + ($relativePath -replace "\\", "/")).TrimStart("/")
+        $s3Uri = "s3://$Bucket/$s3Key"
+
+        & $AwsPath s3 cp $file.FullName $s3Uri --only-show-errors --sse AES256
+        $exitCode = $LASTEXITCODE
+
+        if ($exitCode -eq 0) {
+            $record = [pscustomobject]@{
+                localPath = $file.FullName
+                s3Uri = $s3Uri
+                bytes = $file.Length
+                uploadedAt = (Get-Date).ToUniversalTime().ToString("o")
+                deletedLocal = $false
+            }
+
+            if ($DeleteAfterUpload) {
+                Remove-Item -LiteralPath $file.FullName -Force
+                $record.deletedLocal = $true
+            }
+
+            $uploaded.Add($record) | Out-Null
+        }
+        else {
+            $failed.Add([pscustomobject]@{
+                localPath = $file.FullName
+                s3Uri = $s3Uri
+                exitCode = $exitCode
+            }) | Out-Null
+        }
+    }
+}
+
+if ($UseSync -and $DeleteAfterUpload -and (Test-Path -LiteralPath $root.Path)) {
+    $emptyDirectories = Get-ChildItem -LiteralPath $root.Path -Recurse -Directory |
+        Sort-Object FullName -Descending
+    foreach ($directory in $emptyDirectories) {
+        $remaining = Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction SilentlyContinue
+        if (-not $remaining) {
+            Remove-Item -LiteralPath $directory.FullName -Force
+        }
     }
 }
 
@@ -77,6 +139,7 @@ $summary = [pscustomobject]@{
     bucket = $Bucket
     prefix = $normalizedPrefix
     includePatterns = $IncludePatterns
+    uploadMode = if ($UseSync) { "sync" } else { "file" }
     deleteAfterUpload = [bool]$DeleteAfterUpload
     uploadedCount = $uploaded.Count
     failedCount = $failed.Count

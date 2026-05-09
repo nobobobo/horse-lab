@@ -10,6 +10,7 @@ from horse_lab.data.jravan.exporters import write_staging_csvs
 from horse_lab.data.jravan.layouts import parse_minimal_se_fields
 from horse_lab.data.jravan.mappers import (
     map_o1_record_to_odds_quotes,
+    map_o2_record_to_odds_quotes,
     map_ra_record_to_race,
     map_se_record_to_entry,
     map_se_record_to_result,
@@ -173,7 +174,7 @@ def map_jvdata_records(
 ) -> JraVanMappedDataset:
     """Map supported JV-Data records into canonical schemas.
 
-    The minimal slice supports RA and SE records. Duplicate keys use
+    The minimal slice supports RA, SE, O1, and O2 records. Duplicate keys use
     last-record-wins semantics so a dump containing later JRA-VAN updates can
     supersede earlier snapshots deterministically.
     """
@@ -227,6 +228,18 @@ def map_jvdata_records(
 
         if record.record_type == "O1":
             quotes = _map_record(record, map_o1_record_to_odds_quotes)
+            for quote in quotes:
+                quote_key = (
+                    str(quote.race_id),
+                    str(quote.runner_id),
+                    quote.bet_type.value,
+                    quote.captured_at.isoformat(),
+                )
+                odds_by_quote_key[quote_key] = quote
+            continue
+
+        if record.record_type == "O2":
+            quotes = _map_record(record, map_o2_record_to_odds_quotes)
             for quote in quotes:
                 quote_key = (
                     str(quote.race_id),

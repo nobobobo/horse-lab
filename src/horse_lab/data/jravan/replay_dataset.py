@@ -125,8 +125,14 @@ def build_replay_dataset_from_staging(
     *,
     feature_version: str = DEFAULT_REPLAY_FEATURE_VERSION,
     max_odds_captured_at: datetime | None = None,
+    odds_staging_dirs: Path | str | Sequence[Path | str] | None = None,
 ) -> ReplayDatasetExport:
     """Create a replay-ready dataset from canonical JRA-VAN staging CSVs.
+
+    ``staging_dir`` is the canonical race source and must contain races,
+    entries, results, and odds. Optional ``odds_staging_dirs`` are merged only
+    for odds snapshots, which lets RACE staging be enriched with realtime 0B41
+    O1 odds staging without changing the race/entry/result source of truth.
 
     The compatibility ``odds.csv`` output intentionally keeps only the latest win
     quote per runner. The enriched ``odds_timeseries.csv`` output keeps all
@@ -144,8 +150,9 @@ def build_replay_dataset_from_staging(
     results = tuple(
         parse_result_row(row) for row in read_csv_rows(source / "results.csv")
     )
-    odds = tuple(
-        parse_odds_quote_row(row) for row in read_csv_rows(source / "odds.csv")
+    odds = _read_merged_odds(
+        source,
+        odds_staging_dirs=odds_staging_dirs,
     )
 
     entries_by_race = _group_entries_by_race(entries)
@@ -344,6 +351,44 @@ def replay_dataset_report_to_dict(
             for skipped in report.skipped_races
         ],
     }
+
+
+def _read_merged_odds(
+    staging_dir: Path,
+    *,
+    odds_staging_dirs: Path | str | Sequence[Path | str] | None,
+) -> tuple[OddsQuote, ...]:
+    sources = (staging_dir, *_normalize_odds_staging_dirs(odds_staging_dirs))
+    odds_by_key: dict[tuple[RaceId, RunnerId, BetType, datetime], OddsQuote] = {}
+    for source in sources:
+        for row in read_csv_rows(source / "odds.csv"):
+            if row.get("bet_type") != BetType.WIN.value:
+                continue
+            quote = parse_odds_quote_row(row)
+            odds_by_key[
+                (quote.race_id, quote.runner_id, quote.bet_type, quote.captured_at)
+            ] = quote
+    return tuple(
+        sorted(
+            odds_by_key.values(),
+            key=lambda quote: (
+                str(quote.race_id),
+                str(quote.runner_id),
+                quote.captured_at,
+                quote.bet_type.value,
+            ),
+        )
+    )
+
+
+def _normalize_odds_staging_dirs(
+    odds_staging_dirs: Path | str | Sequence[Path | str] | None,
+) -> tuple[Path, ...]:
+    if odds_staging_dirs is None:
+        return ()
+    if isinstance(odds_staging_dirs, (str, Path)):
+        return (Path(odds_staging_dirs),)
+    return tuple(Path(source) for source in odds_staging_dirs)
 
 
 def _group_entries_by_race(entries: Sequence[Entry]) -> dict[RaceId, tuple[Entry, ...]]:

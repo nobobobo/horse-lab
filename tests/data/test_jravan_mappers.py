@@ -1,27 +1,33 @@
 import datetime as dt
+from pathlib import Path
 
 import pytest
 
 from horse_lab.data.jravan import parse_jvdata_record
 from horse_lab.data.jravan.layouts import (
     JRAVAN_MINIMAL_O1_FIELDS,
+    JRAVAN_MINIMAL_O2_FIELDS,
     JRAVAN_MINIMAL_RA_FIELDS,
     JRAVAN_MINIMAL_SE_FIELDS,
     parse_minimal_o1_fields,
+    parse_minimal_o2_fields,
     parse_minimal_ra_fields,
     parse_minimal_se_fields,
 )
 from horse_lab.data.jravan.mappers import (
     build_jravan_race_id,
     build_jravan_runner_id,
+    map_o2_record_to_odds_quote,
+    map_o2_record_to_odds_quotes,
     map_o1_record_to_odds_quote,
     map_o1_record_to_odds_quotes,
     map_ra_record_to_race,
     map_se_record_to_entry,
     map_se_record_to_result,
 )
-from horse_lab.data.jravan.raw import FixedWidthField
+from horse_lab.data.jravan.raw import FixedWidthField, read_jvdata_records
 from horse_lab.schemas import (
+    BetType,
     CourseDirection,
     HorseId,
     PersonId,
@@ -144,6 +150,37 @@ def _o1_win_entries(*entries: tuple[str, str, str]) -> str:
     return encoded.ljust(224)
 
 
+def _o2_record(**overrides: str):
+    values = {
+        "record_type": "O2",
+        "data_kubun": "7",
+        "data_created_date": "20260508",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "captured_month_day_time": "05080950",
+        "registered_horse_count": "16",
+        "starter_count": "16",
+        "quinella_sale_flag": "7",
+        "quinella_odds_entries": _o2_quinella_entries(
+            ("01", "07", "0000350", "02"),
+        ),
+        "quinella_pool_size_jpy_x100": "0000012345",
+    }
+    values.update(overrides)
+    return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_O2_FIELDS, values))
+
+
+def _o2_quinella_entries(*entries: tuple[str, str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse1:>2}{horse2:>2}{odds:>7}{popularity_rank:>2}"
+        for horse1, horse2, odds, popularity_rank in entries
+    )
+    return encoded.ljust(1989)
+
+
 def test_minimal_ra_layout_extracts_cp932_fixed_width_fields():
     fields = parse_minimal_ra_fields(_ra_record())
 
@@ -176,6 +213,16 @@ def test_minimal_o1_layout_extracts_fixed_width_fields():
     assert fields["win_pool_size_jpy_x100"] == "0000012345"
 
 
+def test_minimal_o2_layout_extracts_fixed_width_fields():
+    fields = parse_minimal_o2_fields(_o2_record())
+
+    assert fields["record_type"] == "O2"
+    assert fields["race_date"] == "20260508"
+    assert fields["captured_month_day_time"] == "05080950"
+    assert fields["quinella_odds_entries"].startswith("0107000035002")
+    assert fields["quinella_pool_size_jpy_x100"] == "0000012345"
+
+
 def test_minimal_layout_helpers_reject_wrong_record_types():
     with pytest.raises(ValueError, match="Expected RA"):
         parse_minimal_ra_fields(_se_record())
@@ -185,6 +232,9 @@ def test_minimal_layout_helpers_reject_wrong_record_types():
 
     with pytest.raises(ValueError, match="Expected O1"):
         parse_minimal_o1_fields(_ra_record())
+
+    with pytest.raises(ValueError, match="Expected O2"):
+        parse_minimal_o2_fields(_ra_record())
 
 
 def test_build_jravan_race_id_uses_date_venue_meeting_day_and_race_number():
@@ -488,3 +538,53 @@ def test_map_o1_record_to_odds_quote_rejects_invalid_odds():
         map_o1_record_to_odds_quote(
             _o1_record(win_odds_entries=_o1_win_entries(("07", "00X5", "02")))
         )
+
+
+def test_map_o2_record_to_odds_quote_maps_minimal_quinella_odds_schema():
+    quote = map_o2_record_to_odds_quote(_o2_record())
+
+    assert quote.race_id == RaceId("2026050805010101")
+    assert quote.runner_id == RunnerId("2026050805010101-01_07")
+    assert quote.bet_type == BetType.QUINELLA
+    assert quote.captured_at == dt.datetime(2026, 5, 8, 9, 50)
+    assert quote.odds == 35.0
+    assert quote.popularity_rank == 2
+    assert quote.pool_size_jpy == 1_234_500
+    assert quote.source == "jravan_o2_quinella"
+
+
+def test_map_o2_record_to_odds_quotes_maps_all_quinella_odds_entries():
+    quotes = map_o2_record_to_odds_quotes(
+        _o2_record(
+            quinella_odds_entries=_o2_quinella_entries(
+                ("01", "07", "0000350", "02"),
+                ("01", "08", "0001200", "01"),
+                ("01", "09", "0000010", "16"),
+            )
+        )
+    )
+
+    assert [quote.runner_id for quote in quotes] == [
+        RunnerId("2026050805010101-01_07"),
+        RunnerId("2026050805010101-01_08"),
+    ]
+    assert [quote.odds for quote in quotes] == [35.0, 120.0]
+    assert [quote.popularity_rank for quote in quotes] == [2, 1]
+
+
+def test_map_o2_record_to_odds_quote_reads_raw_0b42_sample():
+    records = read_jvdata_records(
+        Path(
+            "data/raw/jravan/backfill_0B41_0B42_20250510_20250511_v1/"
+            "2025051004010302/0B42_jvgets.txt"
+        )
+    )
+
+    quotes = map_o2_record_to_odds_quotes(records[0])
+
+    assert quotes[0].race_id == RaceId("2025051004010302")
+    assert quotes[0].runner_id == RunnerId("2025051004010302-01_06")
+    assert quotes[0].bet_type == BetType.QUINELLA
+    assert quotes[0].captured_at == dt.datetime(2025, 5, 9, 18, 33)
+    assert quotes[0].odds == 73.0
+    assert quotes[0].popularity_rank == 2

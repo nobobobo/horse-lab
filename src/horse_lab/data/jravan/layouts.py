@@ -1,4 +1,4 @@
-"""Minimal JRA-VAN RA/SE/O1 fixed-width layouts."""
+"""Minimal JRA-VAN RA/SE/O1/O2 fixed-width layouts."""
 
 from __future__ import annotations
 
@@ -86,6 +86,23 @@ JRAVAN_MINIMAL_O1_FIELDS: tuple[FixedWidthField, ...] = (
     FixedWidthField("win_pool_size_jpy_x100", start=928, length=11),
 )
 
+JRAVAN_MINIMAL_O2_FIELDS: tuple[FixedWidthField, ...] = (
+    FixedWidthField("record_type", start=1, length=2),
+    FixedWidthField("data_kubun", start=3, length=1),
+    FixedWidthField("data_created_date", start=4, length=8),
+    FixedWidthField("race_date", start=12, length=8),
+    FixedWidthField("venue_code", start=20, length=2),
+    FixedWidthField("kaiji", start=22, length=2),
+    FixedWidthField("nichiji", start=24, length=2),
+    FixedWidthField("race_number", start=26, length=2),
+    FixedWidthField("captured_month_day_time", start=28, length=8),
+    FixedWidthField("registered_horse_count", start=36, length=2),
+    FixedWidthField("starter_count", start=38, length=2),
+    FixedWidthField("quinella_sale_flag", start=40, length=1),
+    FixedWidthField("quinella_odds_entries", start=41, length=1989),
+    FixedWidthField("quinella_pool_size_jpy_x100", start=2030, length=11),
+)
+
 
 def parse_minimal_ra_fields(record: JvDataRecord) -> dict[str, str]:
     _require_record_type(record, "RA")
@@ -100,6 +117,11 @@ def parse_minimal_se_fields(record: JvDataRecord) -> dict[str, str]:
 def parse_minimal_o1_fields(record: JvDataRecord) -> dict[str, str]:
     _require_record_type(record, "O1")
     return parse_fixed_width_fields(record.text, JRAVAN_MINIMAL_O1_FIELDS)
+
+
+def parse_minimal_o2_fields(record: JvDataRecord) -> dict[str, str]:
+    _require_record_type(record, "O2")
+    return parse_fixed_width_fields(record.text, JRAVAN_MINIMAL_O2_FIELDS)
 
 
 def _require_record_type(record: JvDataRecord, expected: str) -> None:

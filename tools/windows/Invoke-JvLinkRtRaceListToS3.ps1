@@ -19,6 +19,8 @@ param(
 
     [int]$MaxReadIterations = 5000,
 
+    [switch]$UseFileByFileUpload,
+
     [switch]$KeepLocal
 )
 
@@ -67,19 +69,18 @@ if ($raceExitCode -ne 0) {
 
 $deleteAfterUpload = -not $KeepLocal
 $uploadPrefix = ($S3Prefix.Trim("/") + "/" + $RunId).Trim("/")
+$uploadParams = @{
+    LocalRoot = $outputRoot
+    Bucket = $Bucket
+    Prefix = $uploadPrefix
+}
+if (-not $UseFileByFileUpload) {
+    $uploadParams.UseSync = $true
+}
 if ($deleteAfterUpload) {
-    $uploadOutput = (& $UploadScriptPath `
-        -LocalRoot $outputRoot `
-        -Bucket $Bucket `
-        -Prefix $uploadPrefix `
-        -DeleteAfterUpload 2>&1 | Out-String)
+    $uploadParams.DeleteAfterUpload = $true
 }
-else {
-    $uploadOutput = (& $UploadScriptPath `
-        -LocalRoot $outputRoot `
-        -Bucket $Bucket `
-        -Prefix $uploadPrefix 2>&1 | Out-String)
-}
+$uploadOutput = (& $UploadScriptPath @uploadParams 2>&1 | Out-String)
 $uploadExitCode = $LASTEXITCODE
 $finishedUploadAt = Get-Date
 
@@ -108,6 +109,7 @@ if ($deleteAfterUpload -and (Test-Path -LiteralPath $outputRoot)) {
     raceKeyFile = $RaceKeyFile
     dataSpecs = $DataSpecs
     s3Prefix = $uploadPrefix
+    uploadMode = if ($UseFileByFileUpload) { "file" } else { "sync" }
     keepLocal = [bool]$KeepLocal
     startedAt = $startedAt.ToUniversalTime().ToString("o")
     finishedRaceAt = $finishedRaceAt.ToUniversalTime().ToString("o")

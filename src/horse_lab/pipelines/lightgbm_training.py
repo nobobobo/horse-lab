@@ -82,7 +82,7 @@ def run_lightgbm_training_from_csv(
     dataset_path = Path(dataset_dir)
     return run_lightgbm_training(
         race_repository=CsvRaceRepository(dataset_path / "races.csv"),
-        odds_repository=CsvOddsRepository(dataset_path / "odds.csv"),
+        odds_repository=CsvOddsRepository(_replay_odds_csv_path(dataset_path)),
         result_repository=CsvResultRepository(dataset_path / "results.csv"),
         feature_repository=CsvFeatureRepository(dataset_path / "features.csv"),
         artifact_dir=artifact_dir,
@@ -95,6 +95,13 @@ def run_lightgbm_training_from_csv(
         model_version=model_version,
         estimator_factory=estimator_factory,
     )
+
+
+def _replay_odds_csv_path(dataset_path: Path) -> Path:
+    odds_timeseries_path = dataset_path / "odds_timeseries.csv"
+    if odds_timeseries_path.exists():
+        return odds_timeseries_path
+    return dataset_path / "odds.csv"
 
 
 def run_lightgbm_training(

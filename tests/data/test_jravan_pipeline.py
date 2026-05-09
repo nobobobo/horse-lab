@@ -11,6 +11,7 @@ from horse_lab.data.csv_parsing import (
 )
 from horse_lab.data.jravan import (
     JRAVAN_MINIMAL_O1_FIELDS,
+    JRAVAN_MINIMAL_O2_FIELDS,
     JRAVAN_MINIMAL_RA_FIELDS,
     JRAVAN_MINIMAL_SE_FIELDS,
     FixedWidthField,
@@ -20,7 +21,7 @@ from horse_lab.data.jravan import (
     map_jvdata_records,
     parse_jvdata_record,
 )
-from horse_lab.schemas import RaceId, RunnerId
+from horse_lab.schemas import BetType, RaceId, RunnerId
 
 
 def _fixed_width_text(
@@ -129,6 +130,37 @@ def _o1_win_entries(*entries: tuple[str, str, str]) -> str:
     return encoded.ljust(224)
 
 
+def _o2_text(**overrides: str) -> str:
+    values = {
+        "record_type": "O2",
+        "data_kubun": "7",
+        "data_created_date": "20260508",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "captured_month_day_time": "05080950",
+        "registered_horse_count": "16",
+        "starter_count": "16",
+        "quinella_sale_flag": "7",
+        "quinella_odds_entries": _o2_quinella_entries(
+            ("01", "07", "0000350", "02"),
+        ),
+        "quinella_pool_size_jpy_x100": "0000012345",
+    }
+    values.update(overrides)
+    return _fixed_width_text(JRAVAN_MINIMAL_O2_FIELDS, values)
+
+
+def _o2_quinella_entries(*entries: tuple[str, str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse1:>2}{horse2:>2}{odds:>7}{popularity_rank:>2}"
+        for horse1, horse2, odds, popularity_rank in entries
+    )
+    return encoded.ljust(1989)
+
+
 def _write_raw_file(path: Path, *lines: str) -> None:
     path.write_bytes(("\r\n".join(lines) + "\r\n").encode("cp932"))
 
@@ -162,6 +194,22 @@ def test_ingest_jvdata_file_to_staging_maps_ra_se_and_skips_unknown_records(
     assert result.did_win is True
     assert quote.runner_id == entry.runner_id
     assert quote.odds == 3.5
+
+
+def test_map_jvdata_records_maps_o2_quinella_odds_without_skipping():
+    records = [
+        parse_jvdata_record(_o2_text(), line_number=1),
+        parse_jvdata_record("ZZignored", line_number=2),
+    ]
+
+    dataset = map_jvdata_records(records)
+
+    assert len(dataset.odds) == 1
+    assert dataset.odds[0].runner_id == RunnerId("2026050805010101-01_07")
+    assert dataset.odds[0].bet_type == BetType.QUINELLA
+    assert dataset.odds[0].odds == 35.0
+    assert len(dataset.skipped_records) == 1
+    assert dataset.skipped_records[0].record_type == "ZZ"
 
 
 def test_map_jvdata_records_skips_unassigned_se_records():

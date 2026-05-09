@@ -258,6 +258,79 @@ def test_build_replay_dataset_respects_max_odds_captured_at(tmp_path):
     }
 
 
+def test_build_replay_dataset_merges_additional_odds_staging_dirs(tmp_path):
+    staging_dir = tmp_path / "race_staging"
+    odds_staging_dir = tmp_path / "odds_0b41_staging"
+    output_dir = tmp_path / "replay"
+    race_id = "2026050805010101"
+    write_staging_csvs(
+        staging_dir,
+        races=[_race(race_id)],
+        entries=[_entry(race_id, 1), _entry(race_id, 2)],
+        results=[_result(race_id, 1, 2), _result(race_id, 2, 1)],
+        odds=[
+            _quote(race_id, 1, 4.0, dt.datetime(2026, 5, 8, 9, 35)),
+            _quote(race_id, 2, 2.8, dt.datetime(2026, 5, 8, 9, 35)),
+        ],
+    )
+    write_staging_csvs(
+        odds_staging_dir,
+        races=[],
+        entries=[],
+        results=[],
+        odds=[
+            _quote(race_id, 1, 3.5, dt.datetime(2026, 5, 8, 9, 45)),
+            _quote(race_id, 1, 3.0, dt.datetime(2026, 5, 8, 9, 55)),
+            _quote(race_id, 2, 2.4, dt.datetime(2026, 5, 8, 9, 55)),
+            _quote(
+                race_id,
+                1,
+                99.9,
+                dt.datetime(2026, 5, 8, 9, 55),
+                bet_type=BetType.QUINELLA,
+            ),
+        ],
+    )
+
+    export = build_replay_dataset_from_staging(
+        staging_dir,
+        output_dir,
+        odds_staging_dirs=odds_staging_dir,
+    )
+
+    features = [
+        parse_feature_row(row) for row in read_csv_rows(output_dir / "features.csv")
+    ]
+    odds = [
+        parse_odds_quote_row(row) for row in read_csv_rows(output_dir / "odds.csv")
+    ]
+    odds_timeseries = [
+        parse_odds_quote_row(row)
+        for row in read_csv_rows(output_dir / "odds_timeseries.csv")
+    ]
+    features_by_runner = {row.runner_id: row for row in features}
+
+    assert export.report.input_odds == 5
+    assert export.report.odds_written == 2
+    assert export.report.odds_timeseries_written == 5
+    assert {
+        (quote.runner_id, quote.odds) for quote in odds
+    } == {
+        (RunnerId("2026050805010101-01"), 3.0),
+        (RunnerId("2026050805010101-02"), 2.4),
+    }
+    assert [
+        quote.odds
+        for quote in odds_timeseries
+        if quote.runner_id == RunnerId("2026050805010101-01")
+    ] == [4.0, 3.5, 3.0]
+    first_runner = features_by_runner[RunnerId("2026050805010101-01")]
+    assert first_runner.values[FeatureName("odds_open")] == 4.0
+    assert first_runner.values[FeatureName("odds_latest")] == 3.0
+    assert first_runner.values[FeatureName("odds_snapshot_count")] == 3
+    assert first_runner.values[FeatureName("odds_change_open_to_latest")] == -1.0
+
+
 def test_build_replay_dataset_adds_past_performance_features(tmp_path):
     staging_dir = tmp_path / "staging"
     output_dir = tmp_path / "replay"
@@ -323,8 +396,23 @@ def test_build_replay_dataset_renders_person_ids_as_categorical_strings(tmp_path
 
 def test_jravan_build_replay_dataset_cli_writes_json_summary(tmp_path, capsys):
     staging_dir = tmp_path / "staging"
+    odds_staging_dir = tmp_path / "odds_staging"
     output_dir = tmp_path / "replay"
     _write_staging_fixture(staging_dir)
+    write_staging_csvs(
+        odds_staging_dir,
+        races=[],
+        entries=[],
+        results=[],
+        odds=[
+            _quote(
+                "2026050805010101",
+                2,
+                2.2,
+                dt.datetime(2026, 5, 8, 9, 55),
+            ),
+        ],
+    )
 
     assert (
         main(
@@ -332,6 +420,8 @@ def test_jravan_build_replay_dataset_cli_writes_json_summary(tmp_path, capsys):
                 "jravan-build-replay-dataset",
                 str(staging_dir),
                 str(output_dir),
+                "--odds-staging-dir",
+                str(odds_staging_dir),
                 "--feature-version",
                 "fixture-replay-v1",
             ]
@@ -343,3 +433,12 @@ def test_jravan_build_replay_dataset_cli_writes_json_summary(tmp_path, capsys):
     assert summary["report"]["output_counts"]["races"] == 1
     assert summary["report"]["output_counts"]["feature_rows"] == 2
     assert Path(summary["report_path"]).exists()
+    odds = [
+        parse_odds_quote_row(row) for row in read_csv_rows(output_dir / "odds.csv")
+    ]
+    assert {
+        (quote.runner_id, quote.odds) for quote in odds
+    } == {
+        (RunnerId("2026050805010101-01"), 3.0),
+        (RunnerId("2026050805010101-02"), 2.2),
+    }
