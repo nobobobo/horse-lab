@@ -172,6 +172,11 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     odds = [
         parse_odds_quote_row(row) for row in read_csv_rows(output_dir / "odds.csv")
     ]
+    odds_timeseries = [
+        parse_odds_quote_row(row)
+        for row in read_csv_rows(output_dir / "odds_timeseries.csv")
+    ]
+    payouts = read_csv_rows(output_dir / "payouts.csv")
 
     assert [race.race_id for race in races] == [RaceId("2026050805010101")]
     assert races[0].field_size == 2
@@ -189,9 +194,44 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
         (RunnerId("2026050805010101-01"), BetType.WIN, 3.0),
         (RunnerId("2026050805010101-02"), BetType.WIN, 2.5),
     }
+    assert {
+        (quote.runner_id, quote.captured_at, quote.odds) for quote in odds_timeseries
+    } == {
+        (
+            RunnerId("2026050805010101-01"),
+            dt.datetime(2026, 5, 8, 9, 40),
+            4.0,
+        ),
+        (
+            RunnerId("2026050805010101-01"),
+            dt.datetime(2026, 5, 8, 9, 50),
+            3.0,
+        ),
+        (
+            RunnerId("2026050805010101-02"),
+            dt.datetime(2026, 5, 8, 9, 45),
+            2.5,
+        ),
+    }
+    assert {
+        (row["runner_id"], row["is_win"], row["payout_jpy_per_100"])
+        for row in payouts
+    } == {
+        ("2026050805010101-01", "false", "0"),
+        ("2026050805010101-02", "true", "250"),
+    }
+    assert features[0].values[FeatureName("odds_open")] == 4.0
+    assert features[0].values[FeatureName("odds_latest")] == 3.0
+    assert features[0].values[FeatureName("odds_snapshot_count")] == 2
+    assert features[0].values[FeatureName("odds_change_open_to_latest")] == -1.0
+    assert features[0].values[
+        FeatureName("implied_probability_change_open_to_latest")
+    ] == (1 / 3.0) - (1 / 4.0)
 
     report = json.loads((output_dir / REPLAY_REPORT_FILENAME).read_text())
     assert report == replay_dataset_report_to_dict(export.report)
+    assert report["output_counts"]["odds_timeseries"] == 3
+    assert report["output_counts"]["payouts"] == 2
 
 
 def test_build_replay_dataset_respects_max_odds_captured_at(tmp_path):
@@ -248,6 +288,37 @@ def test_build_replay_dataset_adds_past_performance_features(tmp_path):
     assert second_runner.values[FeatureName("past_run_count")] == 1
     assert second_runner.values[FeatureName("last_finish_position")] == 1
     assert second_runner.values[FeatureName("last_odds")] == 4.0
+
+
+def test_build_replay_dataset_renders_person_ids_as_categorical_strings(tmp_path):
+    staging_dir = tmp_path / "staging"
+    output_dir = tmp_path / "replay"
+    race_id = "2026050805010101"
+    entry = Entry(
+        race_id=RaceId(race_id),
+        runner_id=_runner_id(race_id, 1),
+        horse_id=HorseId("horse-1"),
+        horse_number=1,
+        gate_number=1,
+        jockey_id="01020",
+        trainer_id="04050",
+    )
+    write_staging_csvs(
+        staging_dir,
+        races=[_race(race_id, field_size=1)],
+        entries=[entry],
+        results=[_result(race_id, 1, 1)],
+        odds=[_quote(race_id, 1, 3.0, dt.datetime(2026, 5, 8, 9, 50))],
+    )
+
+    build_replay_dataset_from_staging(staging_dir, output_dir)
+
+    features = [
+        parse_feature_row(row) for row in read_csv_rows(output_dir / "features.csv")
+    ]
+
+    assert features[0].values[FeatureName("jockey_id")] == "jockey:01020"
+    assert features[0].values[FeatureName("trainer_id")] == "trainer:04050"
 
 
 def test_jravan_build_replay_dataset_cli_writes_json_summary(tmp_path, capsys):

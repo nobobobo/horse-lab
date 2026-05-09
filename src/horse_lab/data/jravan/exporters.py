@@ -71,6 +71,18 @@ ODDS_CSV_FIELDS: tuple[str, ...] = (
     "source",
 )
 
+PAYOUT_CSV_FIELDS: tuple[str, ...] = (
+    "race_id",
+    "runner_id",
+    "bet_type",
+    "finish_position",
+    "is_win",
+    "payout_jpy_per_100",
+    "odds",
+    "pool_size_jpy",
+    "source",
+)
+
 
 def race_to_csv_row(race: Race) -> dict[str, str]:
     return {
@@ -194,6 +206,20 @@ def write_odds_csv(path: Path | str, odds: Sequence[OddsQuote]) -> None:
         path,
         ODDS_CSV_FIELDS,
         (odds_quote_to_csv_row(quote) for quote in sorted_odds),
+    )
+
+
+def write_payouts_csv(
+    path: Path | str,
+    payouts: Sequence[dict[str, object]],
+) -> None:
+    _write_csv(
+        path,
+        PAYOUT_CSV_FIELDS,
+        (
+            {field: _render_csv_value(row.get(field)) for field in PAYOUT_CSV_FIELDS}
+            for row in payouts
+        ),
     )
 
 

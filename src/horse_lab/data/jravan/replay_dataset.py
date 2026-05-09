@@ -18,6 +18,7 @@ from horse_lab.data.csv_parsing import (
 )
 from horse_lab.data.jravan.exporters import (
     write_odds_csv,
+    write_payouts_csv,
     write_races_csv,
     write_results_csv,
 )
@@ -38,7 +39,7 @@ from horse_lab.schemas import (
 )
 
 
-DEFAULT_REPLAY_FEATURE_VERSION = "jravan-replay-v1"
+DEFAULT_REPLAY_FEATURE_VERSION = "jravan-replay-v2"
 REPLAY_REPORT_FILENAME = "replay_dataset_report.json"
 
 FEATURE_CSV_BASE_FIELDS: tuple[str, ...] = (
@@ -68,6 +69,14 @@ FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("race_grade"),
     FeatureName("race_field_size"),
     FeatureName("starter"),
+    FeatureName("odds_open"),
+    FeatureName("odds_latest"),
+    FeatureName("odds_min"),
+    FeatureName("odds_max"),
+    FeatureName("odds_snapshot_count"),
+    FeatureName("odds_change_open_to_latest"),
+    FeatureName("implied_probability_change_open_to_latest"),
+    FeatureName("pool_size_latest_jpy"),
     *PAST_PERFORMANCE_FEATURE_NAMES,
 )
 FEATURE_CSV_FIELDS: tuple[str, ...] = FEATURE_CSV_BASE_FIELDS + tuple(
@@ -98,6 +107,8 @@ class ReplayDatasetReport:
     feature_rows_written: int
     results_written: int
     odds_written: int
+    odds_timeseries_written: int
+    payouts_written: int
     skipped_races: tuple[SkippedReplayRace, ...]
 
 
@@ -117,9 +128,10 @@ def build_replay_dataset_from_staging(
 ) -> ReplayDatasetExport:
     """Create a replay-ready dataset from canonical JRA-VAN staging CSVs.
 
-    The output intentionally keeps only the latest win quote per runner. That
-    makes the generated dataset a deterministic final-odds replay fixture, while
-    richer point-in-time odds replay can be layered on top later.
+    The compatibility ``odds.csv`` output intentionally keeps only the latest win
+    quote per runner. The enriched ``odds_timeseries.csv`` output keeps all
+    selected win snapshots so market-movement and point-in-time backtests can be
+    built from the same replay artifact.
     """
 
     source = Path(staging_dir)
@@ -142,11 +154,17 @@ def build_replay_dataset_from_staging(
         odds,
         max_captured_at=max_odds_captured_at,
     )
+    win_odds_timeseries_by_runner = _group_win_odds_timeseries_by_runner(
+        odds,
+        max_captured_at=max_odds_captured_at,
+    )
 
     selected_races: list[Race] = []
     selected_entries: list[Entry] = []
     selected_results: list[Result] = []
     selected_odds: list[OddsQuote] = []
+    selected_odds_timeseries: list[OddsQuote] = []
+    selected_payouts: list[dict[str, object]] = []
     entry_feature_rows: list[FeatureRow] = []
     skipped_races: list[SkippedReplayRace] = []
 
@@ -193,11 +211,22 @@ def build_replay_dataset_from_staging(
         for entry in sorted(race_entries, key=lambda item: item.horse_number):
             selected_entries.append(entry)
             selected_results.append(result_by_runner[entry.runner_id])
-            selected_odds.append(odds_by_runner[entry.runner_id])
+            result = result_by_runner[entry.runner_id]
+            latest_quote = odds_by_runner[entry.runner_id]
+            odds_timeseries = win_odds_timeseries_by_runner.get(entry.runner_id, ())
+            selected_odds.append(latest_quote)
+            selected_odds_timeseries.extend(odds_timeseries)
+            selected_payouts.append(
+                _payout_proxy_row(
+                    result=result,
+                    latest_quote=latest_quote,
+                )
+            )
             entry_feature_rows.append(
                 _feature_row_from_entry(
                     entry,
                     race=selected_race,
+                    odds_timeseries=odds_timeseries,
                     as_of=race_feature_as_of,
                     feature_version=feature_version,
                 )
@@ -228,11 +257,15 @@ def build_replay_dataset_from_staging(
         "features": target / "features.csv",
         "results": target / "results.csv",
         "odds": target / "odds.csv",
+        "odds_timeseries": target / "odds_timeseries.csv",
+        "payouts": target / "payouts.csv",
     }
     write_races_csv(csv_paths["races"], selected_races)
     write_feature_rows_csv(csv_paths["features"], feature_rows)
     write_results_csv(csv_paths["results"], selected_results)
     write_odds_csv(csv_paths["odds"], selected_odds)
+    write_odds_csv(csv_paths["odds_timeseries"], selected_odds_timeseries)
+    write_payouts_csv(csv_paths["payouts"], selected_payouts)
 
     report = ReplayDatasetReport(
         feature_version=feature_version,
@@ -246,6 +279,8 @@ def build_replay_dataset_from_staging(
         feature_rows_written=len(feature_rows),
         results_written=len(selected_results),
         odds_written=len(selected_odds),
+        odds_timeseries_written=len(selected_odds_timeseries),
+        payouts_written=len(selected_payouts),
         skipped_races=tuple(skipped_races),
     )
     report_path = target / REPLAY_REPORT_FILENAME
@@ -294,6 +329,8 @@ def replay_dataset_report_to_dict(
             "feature_rows": report.feature_rows_written,
             "results": report.results_written,
             "odds": report.odds_written,
+            "odds_timeseries": report.odds_timeseries_written,
+            "payouts": report.payouts_written,
         },
         "skipped_races": [
             {
@@ -343,6 +380,24 @@ def _group_latest_win_odds_by_race(
     return grouped
 
 
+def _group_win_odds_timeseries_by_runner(
+    odds: Sequence[OddsQuote],
+    *,
+    max_captured_at: datetime | None,
+) -> dict[RunnerId, tuple[OddsQuote, ...]]:
+    grouped: dict[RunnerId, list[OddsQuote]] = {}
+    for quote in odds:
+        if quote.bet_type != BetType.WIN:
+            continue
+        if max_captured_at is not None and quote.captured_at > max_captured_at:
+            continue
+        grouped.setdefault(quote.runner_id, []).append(quote)
+    return {
+        runner_id: tuple(sorted(values, key=lambda quote: quote.captured_at))
+        for runner_id, values in grouped.items()
+    }
+
+
 def _complete_replay_skip_reason(
     *,
     race: Race,
@@ -366,9 +421,11 @@ def _feature_row_from_entry(
     entry: Entry,
     *,
     race: Race,
+    odds_timeseries: tuple[OddsQuote, ...],
     as_of: datetime,
     feature_version: str,
 ) -> FeatureRow:
+    market_features = _market_movement_features(odds_timeseries)
     return FeatureRow(
         race_id=entry.race_id,
         runner_id=entry.runner_id,
@@ -380,10 +437,10 @@ def _feature_row_from_entry(
             FeatureName("carried_weight_kg"): entry.carried_weight_kg,
             FeatureName("age"): entry.age,
             FeatureName("sex"): entry.metadata.get("sex"),
-            FeatureName("jockey_id"): str(entry.jockey_id)
+            FeatureName("jockey_id"): f"jockey:{entry.jockey_id}"
             if entry.jockey_id is not None
             else None,
-            FeatureName("trainer_id"): str(entry.trainer_id)
+            FeatureName("trainer_id"): f"trainer:{entry.trainer_id}"
             if entry.trainer_id is not None
             else None,
             FeatureName("body_weight_kg"): entry.body_weight_kg,
@@ -401,6 +458,7 @@ def _feature_row_from_entry(
             FeatureName("race_grade"): race.grade,
             FeatureName("race_field_size"): race.field_size,
             FeatureName("starter"): True,
+            **market_features,
         },
     )
 
@@ -441,6 +499,59 @@ def _render_feature_value(value: float | int | bool | str | None) -> str:
     if isinstance(value, bool):
         return str(value).lower()
     return str(value)
+
+
+def _market_movement_features(
+    odds_timeseries: tuple[OddsQuote, ...],
+) -> dict[FeatureName, float | int | None]:
+    if not odds_timeseries:
+        return {
+            FeatureName("odds_open"): None,
+            FeatureName("odds_latest"): None,
+            FeatureName("odds_min"): None,
+            FeatureName("odds_max"): None,
+            FeatureName("odds_snapshot_count"): 0,
+            FeatureName("odds_change_open_to_latest"): None,
+            FeatureName("implied_probability_change_open_to_latest"): None,
+            FeatureName("pool_size_latest_jpy"): None,
+        }
+
+    odds_values = tuple(quote.odds for quote in odds_timeseries)
+    open_odds = odds_timeseries[0].odds
+    latest = odds_timeseries[-1]
+    latest_odds = latest.odds
+    return {
+        FeatureName("odds_open"): open_odds,
+        FeatureName("odds_latest"): latest_odds,
+        FeatureName("odds_min"): min(odds_values),
+        FeatureName("odds_max"): max(odds_values),
+        FeatureName("odds_snapshot_count"): len(odds_timeseries),
+        FeatureName("odds_change_open_to_latest"): latest_odds - open_odds,
+        FeatureName("implied_probability_change_open_to_latest"): (
+            (1.0 / latest_odds) - (1.0 / open_odds)
+        ),
+        FeatureName("pool_size_latest_jpy"): latest.pool_size_jpy,
+    }
+
+
+def _payout_proxy_row(
+    *,
+    result: Result,
+    latest_quote: OddsQuote,
+) -> dict[str, object]:
+    return {
+        "race_id": result.race_id,
+        "runner_id": result.runner_id,
+        "bet_type": latest_quote.bet_type,
+        "finish_position": result.finish_position,
+        "is_win": result.did_win,
+        "payout_jpy_per_100": int(round(latest_quote.odds * 100))
+        if result.did_win
+        else 0,
+        "odds": latest_quote.odds,
+        "pool_size_jpy": latest_quote.pool_size_jpy,
+        "source": "derived_from_latest_win_odds",
+    }
 
 
 def _write_report(path: Path, report: ReplayDatasetReport) -> None:

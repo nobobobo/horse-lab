@@ -12,6 +12,7 @@ from horse_lab.data.jravan.exporters import (
     entry_to_csv_row,
     odds_quote_to_csv_row,
     result_to_csv_row,
+    write_payouts_csv,
     write_staging_csvs,
 )
 from horse_lab.data.jravan.layouts import (
@@ -318,3 +319,38 @@ def test_write_staging_csvs_returns_expected_paths_and_creates_parent_directory(
     assert (target / "entries.csv").exists()
     assert (target / "results.csv").exists()
     assert (target / "odds.csv").exists()
+
+
+def test_write_payouts_csv_renders_proxy_rows(tmp_path):
+    path = tmp_path / "replay" / "payouts.csv"
+
+    write_payouts_csv(
+        path,
+        [
+            {
+                "race_id": RaceId("2026050805010101"),
+                "runner_id": RunnerId("2026050805010101-07"),
+                "bet_type": BetType.WIN,
+                "finish_position": 1,
+                "is_win": True,
+                "payout_jpy_per_100": 350,
+                "odds": 3.5,
+                "pool_size_jpy": None,
+                "source": "derived_from_latest_win_odds",
+            }
+        ],
+    )
+
+    assert read_csv_rows(path) == [
+        {
+            "race_id": "2026050805010101",
+            "runner_id": "2026050805010101-07",
+            "bet_type": "win",
+            "finish_position": "1",
+            "is_win": "true",
+            "payout_jpy_per_100": "350",
+            "odds": "3.5",
+            "pool_size_jpy": "",
+            "source": "derived_from_latest_win_odds",
+        }
+    ]

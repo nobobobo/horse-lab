@@ -11,6 +11,7 @@ from horse_lab.schemas import (
     FeatureName,
     HorseId,
     OddsQuote,
+    PersonId,
     Race,
     RaceId,
     Result,
@@ -26,6 +27,7 @@ def _race(
     surface: Surface = Surface.TURF,
     distance_m: int = 1600,
     start_time: dt.datetime | None = None,
+    grade: str | None = None,
 ) -> Race:
     return Race(
         race_id=RaceId(race_id),
@@ -36,24 +38,46 @@ def _race(
         surface=surface,
         distance_m=distance_m,
         start_time=start_time,
+        grade=grade,
     )
 
 
-def _entry(race_id: str, horse_id: str, runner_suffix: str = "01") -> Entry:
+def _entry(
+    race_id: str,
+    horse_id: str,
+    runner_suffix: str = "01",
+    *,
+    jockey_id: str | None = None,
+    trainer_id: str | None = None,
+    body_weight_kg: int | None = None,
+    body_weight_diff_kg: int | None = None,
+) -> Entry:
     return Entry(
         race_id=RaceId(race_id),
         runner_id=RunnerId(f"{race_id}-{runner_suffix}"),
         horse_id=HorseId(horse_id),
         horse_number=int(runner_suffix),
         gate_number=int(runner_suffix),
+        jockey_id=PersonId(jockey_id) if jockey_id else None,
+        trainer_id=PersonId(trainer_id) if trainer_id else None,
+        body_weight_kg=body_weight_kg,
+        body_weight_diff_kg=body_weight_diff_kg,
     )
 
 
-def _result(entry: Entry, finish_position: int | None) -> Result:
+def _result(
+    entry: Entry,
+    finish_position: int | None,
+    *,
+    final_time_seconds: float | None = None,
+    prize_jpy: int | None = None,
+) -> Result:
     return Result(
         race_id=entry.race_id,
         runner_id=entry.runner_id,
         finish_position=finish_position,
+        final_time_seconds=final_time_seconds,
+        prize_jpy=prize_jpy,
     )
 
 
@@ -221,6 +245,95 @@ def test_past_performance_builder_aggregates_recent_runs():
     )
     assert values[FeatureName("last_finish_position")] == 2
     assert values[FeatureName("last_odds")] == 3.0
+
+
+def test_past_performance_builder_adds_expanded_horse_and_person_features():
+    target_race = _race(
+        "race-target",
+        dt.date(2026, 5, 8),
+        distance_m=1800,
+        grade="B",
+        start_time=dt.datetime(2026, 5, 8, 10, 0),
+    )
+    past_race_1 = _race(
+        "race-1",
+        dt.date(2026, 5, 1),
+        distance_m=1600,
+        grade="C",
+        start_time=dt.datetime(2026, 5, 1, 10, 0),
+    )
+    past_race_2 = _race(
+        "race-2",
+        dt.date(2026, 5, 2),
+        distance_m=1800,
+        grade="C",
+        start_time=dt.datetime(2026, 5, 2, 10, 0),
+    )
+    target_entry = _entry(
+        "race-target",
+        "horse-1",
+        jockey_id="01020",
+        trainer_id="04050",
+    )
+    past_entry_1 = _entry(
+        "race-1",
+        "horse-1",
+        jockey_id="01020",
+        trainer_id="04050",
+        body_weight_kg=480,
+        body_weight_diff_kg=2,
+    )
+    past_entry_2 = _entry(
+        "race-2",
+        "horse-1",
+        jockey_id="99999",
+        trainer_id="04050",
+        body_weight_kg=484,
+        body_weight_diff_kg=4,
+    )
+    other_jockey_entry = _entry(
+        "race-2",
+        "horse-2",
+        runner_suffix="02",
+        jockey_id="01020",
+        trainer_id="77777",
+    )
+
+    rows = PastPerformanceFeatureBuilder().build(
+        entries=[past_entry_1, past_entry_2, other_jockey_entry, target_entry],
+        races=[past_race_1, past_race_2, target_race],
+        results=[
+            _result(past_entry_1, 1, final_time_seconds=96.5, prize_jpy=1000),
+            _result(past_entry_2, 3, final_time_seconds=108.0, prize_jpy=200),
+            _result(other_jockey_entry, 2, final_time_seconds=109.0, prize_jpy=500),
+        ],
+        odds=[
+            _quote(past_entry_1, 4.0, dt.datetime(2026, 5, 1, 9, 50)),
+            _quote(past_entry_2, 6.0, dt.datetime(2026, 5, 2, 9, 50)),
+            _quote(other_jockey_entry, 8.0, dt.datetime(2026, 5, 2, 9, 50)),
+        ],
+        target_entries=[target_entry],
+        target_races=[target_race],
+    )
+
+    values = _values(rows[0])
+    assert values[FeatureName("top3_rate_last5")] == pytest.approx(1.0)
+    assert values[FeatureName("avg_prize_jpy_last3")] == pytest.approx(600.0)
+    assert values[FeatureName("avg_final_time_seconds_last3")] == pytest.approx(
+        (108.0 + 96.5) / 2
+    )
+    assert values[FeatureName("same_distance_run_count")] == 1
+    assert values[FeatureName("same_distance_win_rate")] == pytest.approx(0.0)
+    assert values[FeatureName("distance_delta_from_last")] == 0
+    assert values[FeatureName("last_race_distance_m")] == 1800
+    assert values[FeatureName("last_race_surface")] == "turf"
+    assert values[FeatureName("last_race_grade")] == "C"
+    assert values[FeatureName("last_body_weight_kg")] == 484
+    assert values[FeatureName("last_body_weight_diff_kg")] == 4
+    assert values[FeatureName("jockey_past_run_count")] == 2
+    assert values[FeatureName("jockey_past_win_rate")] == pytest.approx(0.5)
+    assert values[FeatureName("trainer_past_run_count")] == 2
+    assert values[FeatureName("trainer_past_win_rate")] == pytest.approx(0.5)
 
 
 def test_past_performance_builder_allows_missing_odds():

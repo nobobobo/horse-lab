@@ -374,6 +374,8 @@ def test_jravan_daily_market_replay_cli_runs_local_raw_workflow(
         "feature_rows": 1,
         "results": 1,
         "odds": 1,
+        "odds_timeseries": 1,
+        "payouts": 1,
     }
     assert summary["market_replay"]["counts"]["predictions"] == 1
     assert summary["market_replay"]["counts"]["bet_decisions"] == 1
