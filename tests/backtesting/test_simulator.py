@@ -214,6 +214,9 @@ def test_backtest_simulator_skips_zero_stake_predictions():
     )
 
     assert result.records == ()
+    assert len(result.decisions) == 1
+    assert result.decisions[0].did_bet is False
+    assert result.decisions[0].skip_reason == "edge_below_minimum"
     assert result.final_bankroll_jpy == 10_000
     assert result.summary.total_bets == 0
 
@@ -290,6 +293,125 @@ def test_backtest_simulator_uses_latest_prior_odds_and_ignores_future_quotes():
     assert result.records[0].odds == 3.0
     assert result.records[0].stake_jpy == 1_000
     assert result.records[0].payout_jpy == 3_000
+
+
+def test_backtest_simulator_selects_minutes_before_start_odds_and_records_clv():
+    as_of = dt.datetime(2026, 5, 7, 23, 59)
+    race_start = dt.datetime(2026, 5, 7, 11, 0)
+    simulator = BacktestSimulator(
+        config=BacktestConfig(
+            initial_bankroll_jpy=10_000,
+            kelly_config=KellyConfig(
+                fractional_kelly=1.0,
+                max_stake_fraction=0.10,
+                minimum_edge=0.0,
+                stake_unit_jpy=1,
+            ),
+            odds_timing="minutes_before_start",
+            odds_minutes_before_start=30,
+        )
+    )
+
+    result = simulator.run(
+        predictions=[_prediction("runner-1", probability=0.7, as_of=as_of)],
+        odds=[
+            _quote(
+                "runner-1",
+                odds=2.0,
+                captured_at=race_start - dt.timedelta(minutes=40),
+            ),
+            _quote(
+                "runner-1",
+                odds=3.0,
+                captured_at=race_start - dt.timedelta(minutes=5),
+            ),
+        ],
+        results=[_result("runner-1", finish_position=1)],
+        races=[_race("race-1", race_number=1, start_time=race_start)],
+    )
+
+    assert result.records[0].odds == 2.0
+    assert result.records[0].closing_odds == 3.0
+    assert result.records[0].clv_odds_delta == pytest.approx(-1.0)
+    assert result.records[0].clv_implied_probability_delta == pytest.approx(
+        (1.0 / 3.0) - (1.0 / 2.0)
+    )
+    assert result.decisions[0].odds_timing.value == "minutes_before_start"
+
+
+def test_backtest_simulator_caps_total_stake_per_race():
+    as_of = dt.datetime(2026, 5, 7, 14, 55)
+    simulator = BacktestSimulator(
+        config=BacktestConfig(
+            initial_bankroll_jpy=10_000,
+            kelly_config=KellyConfig(
+                fractional_kelly=1.0,
+                max_stake_fraction=0.10,
+                minimum_edge=0.0,
+                stake_unit_jpy=1,
+            ),
+            max_stake_per_race_jpy=1_500,
+        )
+    )
+
+    result = simulator.run(
+        predictions=[
+            _prediction("runner-1", probability=0.6, as_of=as_of),
+            _prediction("runner-2", probability=0.6, as_of=as_of),
+        ],
+        odds=[
+            _quote("runner-1", odds=3.0, captured_at=as_of),
+            _quote("runner-2", odds=3.0, captured_at=as_of),
+        ],
+        results=[
+            _result("runner-1", finish_position=2),
+            _result("runner-2", finish_position=2),
+        ],
+    )
+
+    assert [record.stake_jpy for record in result.records] == [1_000, 500]
+    assert sum(record.stake_jpy for record in result.records) == 1_500
+
+
+def test_backtest_simulator_applies_daily_stop_loss_after_completed_race():
+    as_of = dt.datetime(2026, 5, 7, 9, 55)
+    simulator = BacktestSimulator(
+        config=BacktestConfig(
+            initial_bankroll_jpy=10_000,
+            kelly_config=KellyConfig(
+                fractional_kelly=1.0,
+                max_stake_fraction=0.10,
+                minimum_edge=0.0,
+                stake_unit_jpy=1,
+            ),
+            max_daily_loss_jpy=500,
+        )
+    )
+
+    result = simulator.run(
+        predictions=[
+            _race_prediction("race-a", "runner-a", probability=0.6, as_of=as_of),
+            _race_prediction("race-b", "runner-b", probability=0.6, as_of=as_of),
+        ],
+        odds=[
+            _race_quote("race-a", "runner-a", odds=2.0, captured_at=as_of),
+            _race_quote("race-b", "runner-b", odds=2.0, captured_at=as_of),
+        ],
+        results=[
+            _race_result("race-a", "runner-a", finish_position=2),
+            _race_result("race-b", "runner-b", finish_position=1),
+        ],
+        races=[
+            _race("race-a", race_number=1, start_time=dt.datetime(2026, 5, 7, 10, 0)),
+            _race("race-b", race_number=2, start_time=dt.datetime(2026, 5, 7, 11, 0)),
+        ],
+    )
+
+    assert len(result.records) == 1
+    assert result.records[0].race_id == RaceId("race-a")
+    assert result.final_bankroll_jpy == 9_000
+    assert result.decisions[1].did_bet is False
+    assert result.decisions[1].skip_reason == "daily_stop_loss"
 
 
 def test_backtest_simulator_requires_matching_odds_and_results():

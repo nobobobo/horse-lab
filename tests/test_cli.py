@@ -217,8 +217,9 @@ def test_jravan_s3_pull_raw_cli_dry_run_returns_sync_plan(tmp_path: Path, capsys
     assert not (local_raw_root / "run-1").exists()
 
 
-def test_market_replay_cli_runs_replay_ready_csv_dataset(capsys):
+def test_market_replay_cli_runs_replay_ready_csv_dataset(tmp_path: Path, capsys):
     sample_data = Path(__file__).resolve().parents[1] / "sample_data"
+    report_dir = tmp_path / "backtest"
 
     assert (
         main(
@@ -233,6 +234,8 @@ def test_market_replay_cli_runs_replay_ready_csv_dataset(capsys):
                 "2026-05-08T09:55:00",
                 "--feature-version",
                 "fixture-v1",
+                "--backtest-report-dir",
+                str(report_dir),
             ]
         )
         == 0
@@ -246,7 +249,11 @@ def test_market_replay_cli_runs_replay_ready_csv_dataset(capsys):
         "results": 4,
         "predictions": 4,
         "bet_records": 4,
+        "bet_decisions": 4,
     }
+    assert summary["backtest_config"]["odds_timing"] == "latest_available"
+    assert Path(summary["backtest_artifacts"]["config_path"]).exists()
+    assert Path(summary["backtest_artifacts"]["decision_report_path"]).exists()
     assert summary["backtest"]["final_bankroll_jpy"] == 108_000
     assert summary["probability"]["observations"] == 4
     assert summary["probability"]["brier_score"] > 0.0
@@ -369,7 +376,10 @@ def test_jravan_daily_market_replay_cli_runs_local_raw_workflow(
         "odds": 1,
     }
     assert summary["market_replay"]["counts"]["predictions"] == 1
+    assert summary["market_replay"]["counts"]["bet_decisions"] == 1
     assert summary["market_replay"]["probability"]["observations"] == 1
+    assert Path(summary["backtest_artifacts"]["config_path"]).exists()
+    assert Path(summary["backtest_artifacts"]["decision_report_path"]).exists()
     assert Path(summary["report_path"]).exists()
 
 

@@ -55,6 +55,7 @@ def run_market_replay(
     feature_version: str,
     initial_bankroll_jpy: int = 100_000,
     kelly_config: KellyConfig | None = None,
+    backtest_config: BacktestConfig | None = None,
     model_version: str = "market-implied-v1",
 ) -> ReplayResult:
     """Run a point-in-time market-implied replay over repository data.
@@ -103,12 +104,16 @@ def run_market_replay(
         )
     )
 
-    backtest_result = BacktestSimulator(
-        config=BacktestConfig(
-            initial_bankroll_jpy=initial_bankroll_jpy,
-            kelly_config=kelly_config or KellyConfig(),
-        )
-    ).run(predictions=predictions, odds=odds, results=results, races=races)
+    config = backtest_config or BacktestConfig(
+        initial_bankroll_jpy=initial_bankroll_jpy,
+        kelly_config=kelly_config or KellyConfig(),
+    )
+    backtest_result = BacktestSimulator(config=config).run(
+        predictions=predictions,
+        odds=odds,
+        results=results,
+        races=races,
+    )
     probability_summary = summarize_win_probability_predictions(
         predictions=predictions,
         results=results,

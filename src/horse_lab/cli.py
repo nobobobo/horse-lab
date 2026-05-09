@@ -9,6 +9,13 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Sequence
 
+from horse_lab.backtesting import (
+    BacktestConfig,
+    OddsTiming,
+    backtest_config_to_dict,
+    write_backtest_artifacts,
+)
+from horse_lab.betting import KellyConfig
 from horse_lab.data import (
     CsvFeatureRepository,
     CsvOddsRepository,
@@ -151,6 +158,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=100_000,
         help="Initial bankroll used by the Kelly backtest.",
     )
+    market_replay_parser.add_argument(
+        "--backtest-report-dir",
+        type=Path,
+        default=None,
+        help="Optional directory for backtest_config.json and bet_decisions.csv.",
+    )
+    _add_backtest_options(market_replay_parser)
     market_replay_parser.set_defaults(handler=_handle_market_replay)
 
     lightgbm_parser = subparsers.add_parser(
@@ -202,6 +216,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=100_000,
     )
+    daily_replay_parser.add_argument(
+        "--backtest-report-dir",
+        type=Path,
+        default=None,
+        help="Optional override for daily backtest artifacts.",
+    )
+    _add_backtest_options(daily_replay_parser)
     daily_replay_parser.add_argument("--bucket", default=DEFAULT_JRAVAN_S3_BUCKET)
     daily_replay_parser.add_argument("--prefix", default=DEFAULT_JRAVAN_S3_RAW_PREFIX)
     daily_replay_parser.add_argument("--aws-cli", default="aws")
@@ -232,6 +253,23 @@ def build_parser() -> argparse.ArgumentParser:
     preview_parser.set_defaults(handler=_handle_jravan_preview)
 
     return parser
+
+
+def _add_backtest_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--fractional-kelly", type=float, default=0.25)
+    parser.add_argument("--max-stake-fraction", type=float, default=0.02)
+    parser.add_argument("--minimum-edge", type=float, default=0.02)
+    parser.add_argument("--stake-unit-jpy", type=int, default=100)
+    parser.add_argument("--min-odds", type=float, default=None)
+    parser.add_argument("--max-odds", type=float, default=None)
+    parser.add_argument("--max-stake-per-race-jpy", type=int, default=None)
+    parser.add_argument("--max-daily-loss-jpy", type=int, default=None)
+    parser.add_argument(
+        "--odds-timing",
+        choices=[timing.value for timing in OddsTiming],
+        default=OddsTiming.LATEST_AVAILABLE.value,
+    )
+    parser.add_argument("--odds-minutes-before-start", type=int, default=None)
 
 
 def _handle_jravan_ingest(args: argparse.Namespace) -> dict[str, object]:
@@ -323,6 +361,7 @@ def _handle_jravan_build_replay_dataset(
 
 def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
     dataset_dir = args.dataset_dir
+    backtest_config = _backtest_config_from_args(args)
     result = run_market_replay(
         race_repository=CsvRaceRepository(dataset_dir / "races.csv"),
         odds_repository=CsvOddsRepository(dataset_dir / "odds.csv"),
@@ -332,14 +371,15 @@ def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
         end_date=args.end_date,
         as_of=args.as_of,
         feature_version=args.feature_version,
-        initial_bankroll_jpy=args.initial_bankroll_jpy,
+        backtest_config=backtest_config,
     )
-    return {
+    summary = {
         "dataset_dir": str(dataset_dir),
         "start_date": args.start_date.isoformat(),
         "end_date": args.end_date.isoformat(),
         "as_of": args.as_of.isoformat(),
         "feature_version": args.feature_version,
+        "backtest_config": backtest_config_to_dict(backtest_config),
         "counts": {
             "races": len(result.races),
             "feature_rows": len(result.feature_rows),
@@ -347,10 +387,22 @@ def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
             "results": len(result.results),
             "predictions": len(result.predictions),
             "bet_records": len(result.backtest_result.records),
+            "bet_decisions": len(result.backtest_result.decisions),
         },
         "backtest": _performance_summary_to_dict(result.summary),
         "probability": _probability_summary_to_dict(result.probability_summary),
     }
+    if args.backtest_report_dir is not None:
+        paths = write_backtest_artifacts(
+            result=result.backtest_result,
+            config=backtest_config,
+            output_dir=args.backtest_report_dir,
+        )
+        summary["backtest_artifacts"] = {
+            "config_path": str(paths.config_path),
+            "decision_report_path": str(paths.decision_report_path),
+        }
+    return summary
 
 
 def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:
@@ -379,6 +431,7 @@ def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:
 
 def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, object]:
     paths = _daily_paths(args.workspace_root, args.run_id)
+    backtest_config = _backtest_config_from_args(args)
     s3_plan = build_jravan_s3_raw_sync_plan(
         run_id=args.run_id,
         local_raw_root=paths["local_raw_root"],
@@ -400,6 +453,7 @@ def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, ob
             "returncode": None,
         },
         "dry_run": args.dry_run,
+        "backtest_config": backtest_config_to_dict(backtest_config),
     }
 
     if args.dry_run:
@@ -455,7 +509,7 @@ def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, ob
         end_date=args.end_date,
         as_of=args.as_of,
         feature_version=args.feature_version,
-        initial_bankroll_jpy=args.initial_bankroll_jpy,
+        backtest_config=backtest_config,
     )
     summary["market_replay"] = {
         "start_date": args.start_date.isoformat(),
@@ -469,11 +523,22 @@ def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, ob
             "results": len(replay_result.results),
             "predictions": len(replay_result.predictions),
             "bet_records": len(replay_result.backtest_result.records),
+            "bet_decisions": len(replay_result.backtest_result.decisions),
         },
         "backtest": _performance_summary_to_dict(replay_result.summary),
         "probability": _probability_summary_to_dict(
             replay_result.probability_summary
         ),
+    }
+    artifact_dir = args.backtest_report_dir or paths["backtest_dir"]
+    artifact_paths = write_backtest_artifacts(
+        result=replay_result.backtest_result,
+        config=backtest_config,
+        output_dir=artifact_dir,
+    )
+    summary["backtest_artifacts"] = {
+        "config_path": str(artifact_paths.config_path),
+        "decision_report_path": str(artifact_paths.decision_report_path),
     }
     _write_json_file(paths["market_report_path"], summary)
     summary["report_path"] = str(paths["market_report_path"])
@@ -501,6 +566,7 @@ def _daily_paths(workspace_root: Path, run_id: str) -> dict[str, Path]:
         "raw_dir": workspace_root / "raw" / "jravan" / run_id,
         "staging_dir": workspace_root / "interim" / "jravan" / run_id,
         "replay_dir": workspace_root / "processed" / "jravan" / run_id / "replay",
+        "backtest_dir": workspace_root / "processed" / "jravan" / run_id / "backtest",
         "market_report_path": (
             workspace_root
             / "processed"
@@ -525,6 +591,24 @@ def _parse_cli_datetime(value: str) -> datetime:
         raise argparse.ArgumentTypeError(
             f"expected ISO datetime, got {value!r}"
         ) from exc
+
+
+def _backtest_config_from_args(args: argparse.Namespace) -> BacktestConfig:
+    return BacktestConfig(
+        initial_bankroll_jpy=args.initial_bankroll_jpy,
+        kelly_config=KellyConfig(
+            fractional_kelly=args.fractional_kelly,
+            max_stake_fraction=args.max_stake_fraction,
+            minimum_edge=args.minimum_edge,
+            stake_unit_jpy=args.stake_unit_jpy,
+        ),
+        min_odds=args.min_odds,
+        max_odds=args.max_odds,
+        max_stake_per_race_jpy=args.max_stake_per_race_jpy,
+        max_daily_loss_jpy=args.max_daily_loss_jpy,
+        odds_timing=args.odds_timing,
+        odds_minutes_before_start=args.odds_minutes_before_start,
+    )
 
 
 def _performance_summary_to_dict(summary: PerformanceSummary) -> dict[str, object]:

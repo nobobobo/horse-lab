@@ -61,9 +61,10 @@
 
 ### Phase 3: バックテストエンジン
 
-- bankroll、stake sizing、odds timing、bet filters を明示したシミュレーターを作る。
-- fractional Kelly、minimum edge、maximum stake per race、daily stop loss を実装する。
-- closing odds と pre-race odds の差分を比較する。
+- bankroll、stake sizing、odds timing、bet filters を明示したシミュレーターを作る。完了。
+- fractional Kelly、minimum edge、maximum stake per race、daily stop loss を実装する。完了。
+- closing odds と pre-race odds の差分を比較する。初期版完了。
+- `backtest_config.json` と `bet_decisions.csv` を出力し、賭けた理由/見送った理由を監査できるようにする。完了。
 
 ### Phase 4: Ensemble
 
@@ -95,6 +96,38 @@
 - `horse_lab.backtesting.simulator.BacktestSimulator` は過去の prediction、odds、result を使って runner-level の単勝バックテストを行う。
 - `horse_lab.evaluation.metrics` は ROI、hit rate、turnover、max drawdown に加えて、log loss、Brier score、calibration bins を集計する。
 - `horse_lab.data` と `horse_lab.features` は storage と point-in-time feature generation の protocol を定義する。
+
+## 実装済み Phase 3 backtest / paper trading 基盤
+
+Phase 3 では、basic Kelly simulation を paper trading に近い監査可能な形へ拡張した。
+
+- `BacktestConfig` は bankroll、Kelly 設定、min/max odds、race 単位 stake 上限、daily stop loss、odds timing policy を持つ。
+- odds timing は `latest_available`、`closing`、`minutes_before_start` を選べる。
+- simulator は実際に賭けた `BetRecord` と、全候補 runner の `BetDecision` を分けて返す。
+- `BetDecision` は `did_bet`、`skip_reason`、fair odds、edge、Kelly fraction、stake、profit、bankroll、closing odds、CLV を持つ。
+- skip reason は `edge_below_minimum`、`stake_below_unit`、`odds_below_minimum`、`odds_above_maximum`、`race_stake_limit`、`daily_stop_loss` などを区別する。
+- `write_backtest_artifacts` は `backtest_config.json` と `bet_decisions.csv` を出力する。
+- `market-replay` と `jravan-daily-market-replay` は backtest options と artifact 出力に対応する。
+
+CLI 例:
+
+```bash
+horse-lab market-replay \
+  data/processed/jravan/daily_backfill_RACE_20250509_20260509_v1/replay \
+  --start-date 2026-03-01 \
+  --end-date 2026-05-08 \
+  --as-of 2026-05-09T00:00:00 \
+  --fractional-kelly 0.25 \
+  --minimum-edge 0.03 \
+  --max-stake-per-race-jpy 2000 \
+  --max-daily-loss-jpy 10000 \
+  --odds-timing latest_available \
+  --backtest-report-dir artifacts/backtests/market_20260301_20260508
+```
+
+`bet_decisions.csv` は、positive edge が出ない market baseline でも重要。賭けなかった runner の `skip_reason` を保存できるため、モデル比較、paper trading、bet filter 改善の監査ログとして使える。
+
+現行の `RACE` daily replay では odds の `captured_at` が確定後/日次 artifact 由来になりやすく、race start 前の realtime snapshot がない場合は CLV 欄が空になる。CLV を本格評価するには `0B31/0B41` の realtime odds を ingest し、`closing` または `minutes_before_start` の timing policy で replay する。
 
 ## 実装済み履歴 replay
 
