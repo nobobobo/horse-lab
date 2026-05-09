@@ -32,27 +32,25 @@ if ([string]::IsNullOrWhiteSpace($RunId)) {
 $outputRoot = Join-Path $WorkRoot $RunId
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 
-$raceArgs = @(
-    "-OutputRoot", $outputRoot,
-    "-MaxReadIterations", [string]$MaxReadIterations
-)
+$raceParams = @{
+    OutputRoot = $outputRoot
+    MaxReadIterations = $MaxReadIterations
+}
 
 if ($RaceKeys.Count -gt 0) {
-    $raceArgs += "-RaceKeys"
-    $raceArgs += $RaceKeys
+    $raceParams.RaceKeys = $RaceKeys
 }
 
 if (-not [string]::IsNullOrWhiteSpace($RaceKeyFile)) {
-    $raceArgs += @("-RaceKeyFile", $RaceKeyFile)
+    $raceParams.RaceKeyFile = $RaceKeyFile
 }
 
 if ($DataSpecs.Count -gt 0) {
-    $raceArgs += "-DataSpecs"
-    $raceArgs += $DataSpecs
+    $raceParams.DataSpecs = $DataSpecs
 }
 
 $startedAt = Get-Date
-$raceOutput = (& $RaceListScriptPath @raceArgs 2>&1 | Out-String)
+$raceOutput = (& $RaceListScriptPath @raceParams 2>&1 | Out-String)
 $raceExitCode = $LASTEXITCODE
 $finishedRaceAt = Get-Date
 
