@@ -13,6 +13,7 @@ from horse_lab.data.jravan import (
     REPLAY_REPORT_FILENAME,
     build_replay_dataset_from_staging,
     replay_dataset_report_to_dict,
+    write_payouts_csv,
     write_staging_csvs,
 )
 from horse_lab.schemas import (
@@ -232,6 +233,52 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     assert report == replay_dataset_report_to_dict(export.report)
     assert report["output_counts"]["odds_timeseries"] == 3
     assert report["output_counts"]["payouts"] == 2
+
+
+def test_build_replay_dataset_prefers_official_payouts_when_available(tmp_path):
+    staging_dir = tmp_path / "staging"
+    output_dir = tmp_path / "replay"
+    _write_staging_fixture(staging_dir)
+    write_payouts_csv(
+        staging_dir / "payouts.csv",
+        [
+            {
+                "race_id": "2026050805010101",
+                "runner_id": "2026050805010101-02",
+                "bet_type": "win",
+                "finish_position": 1,
+                "is_win": True,
+                "payout_jpy_per_100": 260,
+                "odds": 2.6,
+                "pool_size_jpy": 123_400,
+                "source": "jravan_hr_official",
+            },
+            {
+                "race_id": "2026050805010101",
+                "runner_id": "2026050805010101-01_02",
+                "bet_type": "quinella",
+                "is_win": True,
+                "payout_jpy_per_100": 800,
+                "odds": 8.0,
+                "pool_size_jpy": 456_700,
+                "source": "jravan_hr_official",
+            },
+        ],
+    )
+
+    export = build_replay_dataset_from_staging(staging_dir, output_dir)
+
+    payouts = read_csv_rows(output_dir / "payouts.csv")
+    assert {
+        (row["runner_id"], row["bet_type"], row["payout_jpy_per_100"], row["source"])
+        for row in payouts
+    } == {
+        ("2026050805010101-01", "win", "0", "derived_from_latest_win_odds"),
+        ("2026050805010101-02", "win", "260", "jravan_hr_official"),
+        ("2026050805010101-01_02", "quinella", "800", "jravan_hr_official"),
+    }
+    assert export.report.input_payouts == 2
+    assert export.report.payouts_written == 3
 
 
 def test_build_replay_dataset_respects_max_odds_captured_at(tmp_path):

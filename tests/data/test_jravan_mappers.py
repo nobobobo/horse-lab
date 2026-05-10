@@ -7,8 +7,12 @@ from horse_lab.data.jravan import parse_jvdata_record
 from horse_lab.data.jravan.layouts import (
     JRAVAN_MINIMAL_O1_FIELDS,
     JRAVAN_MINIMAL_O2_FIELDS,
+    JRAVAN_MINIMAL_H1_FIELDS,
+    JRAVAN_MINIMAL_HR_FIELDS,
     JRAVAN_MINIMAL_RA_FIELDS,
     JRAVAN_MINIMAL_SE_FIELDS,
+    parse_minimal_h1_fields,
+    parse_minimal_hr_fields,
     parse_minimal_o1_fields,
     parse_minimal_o2_fields,
     parse_minimal_ra_fields,
@@ -17,6 +21,8 @@ from horse_lab.data.jravan.layouts import (
 from horse_lab.data.jravan.mappers import (
     build_jravan_race_id,
     build_jravan_runner_id,
+    map_h1_record_to_pool_sizes,
+    map_hr_record_to_payout_rows,
     map_o2_record_to_odds_quote,
     map_o2_record_to_odds_quotes,
     map_o1_record_to_odds_quote,
@@ -181,6 +187,60 @@ def _o2_quinella_entries(*entries: tuple[str, str, str, str]) -> str:
     return encoded.ljust(1989)
 
 
+def _hr_record(**overrides: str):
+    values = {
+        "record_type": "HR",
+        "data_kubun": "7",
+        "data_created_date": "20260508",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "win_payout_entries": _hr_win_entries(("07", "000000350", "02")),
+        "quinella_payout_entries": _hr_quinella_entries(
+            ("01", "07", "000003500", "002"),
+        ),
+    }
+    values.update(overrides)
+    return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_HR_FIELDS, values))
+
+
+def _hr_win_entries(*entries: tuple[str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse_number:>2}{payout:>9}{popularity_rank:>2}"
+        for horse_number, payout, popularity_rank in entries
+    )
+    return encoded.ljust(39)
+
+
+def _hr_quinella_entries(*entries: tuple[str, str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse1:>2}{horse2:>2}{payout:>9}{popularity_rank:>3}"
+        for horse1, horse2, payout, popularity_rank in entries
+    )
+    return encoded.ljust(48)
+
+
+def _h1_record(**overrides: str):
+    values = {
+        "record_type": "H1",
+        "data_kubun": "7",
+        "data_created_date": "20260508",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "win_ticket_count_total": "00000100000",
+        "quinella_ticket_count_total": "00000200000",
+        "win_refund_ticket_count_total": "00000000100",
+        "quinella_refund_ticket_count_total": "00000000200",
+    }
+    values.update(overrides)
+    return parse_jvdata_record(_fixed_width_text(JRAVAN_MINIMAL_H1_FIELDS, values))
+
+
 def test_minimal_ra_layout_extracts_cp932_fixed_width_fields():
     fields = parse_minimal_ra_fields(_ra_record())
 
@@ -223,6 +283,23 @@ def test_minimal_o2_layout_extracts_fixed_width_fields():
     assert fields["quinella_pool_size_jpy_x100"] == "0000012345"
 
 
+def test_minimal_hr_layout_extracts_official_payout_fields():
+    fields = parse_minimal_hr_fields(_hr_record())
+
+    assert fields["record_type"] == "HR"
+    assert fields["race_date"] == "20260508"
+    assert fields["win_payout_entries"].startswith("0700000035002")
+    assert fields["quinella_payout_entries"].startswith("0107000003500002")
+
+
+def test_minimal_h1_layout_extracts_pool_total_fields():
+    fields = parse_minimal_h1_fields(_h1_record())
+
+    assert fields["record_type"] == "H1"
+    assert fields["win_ticket_count_total"] == "00000100000"
+    assert fields["quinella_refund_ticket_count_total"] == "00000000200"
+
+
 def test_minimal_layout_helpers_reject_wrong_record_types():
     with pytest.raises(ValueError, match="Expected RA"):
         parse_minimal_ra_fields(_se_record())
@@ -235,6 +312,12 @@ def test_minimal_layout_helpers_reject_wrong_record_types():
 
     with pytest.raises(ValueError, match="Expected O2"):
         parse_minimal_o2_fields(_ra_record())
+
+    with pytest.raises(ValueError, match="Expected HR"):
+        parse_minimal_hr_fields(_ra_record())
+
+    with pytest.raises(ValueError, match="Expected H1"):
+        parse_minimal_h1_fields(_ra_record())
 
 
 def test_build_jravan_race_id_uses_date_venue_meeting_day_and_race_number():
@@ -588,3 +671,47 @@ def test_map_o2_record_to_odds_quote_reads_raw_0b42_sample():
     assert quotes[0].captured_at == dt.datetime(2025, 5, 9, 18, 33)
     assert quotes[0].odds == 73.0
     assert quotes[0].popularity_rank == 2
+
+
+def test_map_hr_record_to_payout_rows_maps_win_and_quinella_official_payouts():
+    rows = map_hr_record_to_payout_rows(
+        _hr_record(),
+        pool_size_by_bet_type={
+            BetType.WIN: 9_990_000,
+            BetType.QUINELLA: 19_980_000,
+        },
+    )
+
+    assert rows == (
+        {
+            "race_id": "2026050805010101",
+            "runner_id": "2026050805010101-07",
+            "bet_type": "win",
+            "finish_position": 1,
+            "is_win": True,
+            "payout_jpy_per_100": 350,
+            "odds": 3.5,
+            "pool_size_jpy": 9_990_000,
+            "source": "jravan_hr_official",
+        },
+        {
+            "race_id": "2026050805010101",
+            "runner_id": "2026050805010101-01_07",
+            "bet_type": "quinella",
+            "finish_position": None,
+            "is_win": True,
+            "payout_jpy_per_100": 3500,
+            "odds": 35.0,
+            "pool_size_jpy": 19_980_000,
+            "source": "jravan_hr_official",
+        },
+    )
+
+
+def test_map_h1_record_to_pool_sizes_subtracts_refund_ticket_counts():
+    pools = map_h1_record_to_pool_sizes(_h1_record())
+
+    assert pools == {
+        BetType.WIN: 9_990_000,
+        BetType.QUINELLA: 19_980_000,
+    }

@@ -103,6 +103,7 @@ class ReplayDatasetReport:
     input_entries: int
     input_results: int
     input_odds: int
+    input_payouts: int
     races_written: int
     feature_rows_written: int
     results_written: int
@@ -153,6 +154,11 @@ def build_replay_dataset_from_staging(
     odds = _read_merged_odds(
         source,
         odds_staging_dirs=odds_staging_dirs,
+    )
+    official_payouts = _read_payout_rows(source / "payouts.csv")
+    official_win_payouts_by_key = _index_win_payout_rows(official_payouts)
+    official_non_win_payouts_by_race = _group_non_win_payout_rows_by_race(
+        official_payouts
     )
 
     entries_by_race = _group_entries_by_race(entries)
@@ -221,10 +227,18 @@ def build_replay_dataset_from_staging(
             result = result_by_runner[entry.runner_id]
             latest_quote = odds_by_runner[entry.runner_id]
             odds_timeseries = win_odds_timeseries_by_runner.get(entry.runner_id, ())
+            official_win_payout = official_win_payouts_by_key.get(
+                (
+                    str(entry.race_id),
+                    str(entry.runner_id),
+                    BetType.WIN.value,
+                )
+            )
             selected_odds.append(latest_quote)
             selected_odds_timeseries.extend(odds_timeseries)
             selected_payouts.append(
-                _payout_proxy_row(
+                _official_or_proxy_win_payout_row(
+                    official_row=official_win_payout,
                     result=result,
                     latest_quote=latest_quote,
                 )
@@ -238,6 +252,9 @@ def build_replay_dataset_from_staging(
                     feature_version=feature_version,
                 )
             )
+        selected_payouts.extend(
+            official_non_win_payouts_by_race.get(str(race.race_id), ())
+        )
 
     past_features_by_runner = {
         row.runner_id: row
@@ -282,6 +299,7 @@ def build_replay_dataset_from_staging(
         input_entries=len(entries),
         input_results=len(results),
         input_odds=len(odds),
+        input_payouts=len(official_payouts),
         races_written=len(selected_races),
         feature_rows_written=len(feature_rows),
         results_written=len(selected_results),
@@ -330,6 +348,7 @@ def replay_dataset_report_to_dict(
             "entries": report.input_entries,
             "results": report.input_results,
             "odds": report.input_odds,
+            "payouts": report.input_payouts,
         },
         "output_counts": {
             "races": report.races_written,
@@ -597,6 +616,103 @@ def _payout_proxy_row(
         "pool_size_jpy": latest_quote.pool_size_jpy,
         "source": "derived_from_latest_win_odds",
     }
+
+
+def _official_or_proxy_win_payout_row(
+    *,
+    official_row: Mapping[str, object] | None,
+    result: Result,
+    latest_quote: OddsQuote,
+) -> dict[str, object]:
+    if official_row is None:
+        return _payout_proxy_row(result=result, latest_quote=latest_quote)
+
+    row = dict(official_row)
+    row["finish_position"] = result.finish_position
+    row["is_win"] = result.did_win
+    if row.get("pool_size_jpy") in {None, ""}:
+        row["pool_size_jpy"] = latest_quote.pool_size_jpy
+    return row
+
+
+def _read_payout_rows(path: Path) -> tuple[dict[str, object], ...]:
+    if not path.exists():
+        return ()
+    return tuple(_normalize_payout_row(row) for row in read_csv_rows(path))
+
+
+def _normalize_payout_row(row: Mapping[str, str]) -> dict[str, object]:
+    return {
+        "race_id": row.get("race_id", ""),
+        "runner_id": row.get("runner_id", ""),
+        "bet_type": row.get("bet_type", ""),
+        "finish_position": _parse_optional_int(row.get("finish_position")),
+        "is_win": _parse_optional_bool(row.get("is_win")),
+        "payout_jpy_per_100": _parse_optional_int(row.get("payout_jpy_per_100")),
+        "odds": _parse_optional_float(row.get("odds")),
+        "pool_size_jpy": _parse_optional_int(row.get("pool_size_jpy")),
+        "source": row.get("source", ""),
+    }
+
+
+def _index_win_payout_rows(
+    rows: Sequence[Mapping[str, object]],
+) -> dict[tuple[str, str, str], Mapping[str, object]]:
+    indexed: dict[tuple[str, str, str], Mapping[str, object]] = {}
+    for row in rows:
+        if row.get("bet_type") != BetType.WIN.value:
+            continue
+        indexed[
+            (
+                str(row.get("race_id", "")),
+                str(row.get("runner_id", "")),
+                BetType.WIN.value,
+            )
+        ] = row
+    return indexed
+
+
+def _group_non_win_payout_rows_by_race(
+    rows: Sequence[dict[str, object]],
+) -> dict[str, tuple[dict[str, object], ...]]:
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        if row.get("bet_type") == BetType.WIN.value:
+            continue
+        grouped.setdefault(str(row.get("race_id", "")), []).append(dict(row))
+    return {
+        race_id: tuple(
+            sorted(
+                values,
+                key=lambda row: (
+                    str(row.get("bet_type", "")),
+                    str(row.get("runner_id", "")),
+                ),
+            )
+        )
+        for race_id, values in grouped.items()
+    }
+
+
+def _parse_optional_int(value: object) -> int | None:
+    normalized = "" if value is None else str(value).strip()
+    return int(normalized) if normalized else None
+
+
+def _parse_optional_float(value: object) -> float | None:
+    normalized = "" if value is None else str(value).strip()
+    return float(normalized) if normalized else None
+
+
+def _parse_optional_bool(value: object) -> bool | None:
+    normalized = "" if value is None else str(value).strip().lower()
+    if normalized in {"", "none"}:
+        return None
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    raise ValueError(f"Invalid boolean payout value: {value!r}")
 
 
 def _write_report(path: Path, report: ReplayDatasetReport) -> None:

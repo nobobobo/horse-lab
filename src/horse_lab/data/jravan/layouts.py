@@ -1,4 +1,4 @@
-"""Minimal JRA-VAN RA/SE/O1/O2 fixed-width layouts."""
+"""Minimal JRA-VAN fixed-width layouts."""
 
 from __future__ import annotations
 
@@ -103,6 +103,34 @@ JRAVAN_MINIMAL_O2_FIELDS: tuple[FixedWidthField, ...] = (
     FixedWidthField("quinella_pool_size_jpy_x100", start=2030, length=11),
 )
 
+JRAVAN_MINIMAL_HR_FIELDS: tuple[FixedWidthField, ...] = (
+    FixedWidthField("record_type", start=1, length=2),
+    FixedWidthField("data_kubun", start=3, length=1),
+    FixedWidthField("data_created_date", start=4, length=8),
+    FixedWidthField("race_date", start=12, length=8),
+    FixedWidthField("venue_code", start=20, length=2),
+    FixedWidthField("kaiji", start=22, length=2),
+    FixedWidthField("nichiji", start=24, length=2),
+    FixedWidthField("race_number", start=26, length=2),
+    FixedWidthField("win_payout_entries", start=103, length=39),
+    FixedWidthField("quinella_payout_entries", start=246, length=48),
+)
+
+JRAVAN_MINIMAL_H1_FIELDS: tuple[FixedWidthField, ...] = (
+    FixedWidthField("record_type", start=1, length=2),
+    FixedWidthField("data_kubun", start=3, length=1),
+    FixedWidthField("data_created_date", start=4, length=8),
+    FixedWidthField("race_date", start=12, length=8),
+    FixedWidthField("venue_code", start=20, length=2),
+    FixedWidthField("kaiji", start=22, length=2),
+    FixedWidthField("nichiji", start=24, length=2),
+    FixedWidthField("race_number", start=26, length=2),
+    FixedWidthField("win_ticket_count_total", start=28800, length=11),
+    FixedWidthField("quinella_ticket_count_total", start=28833, length=11),
+    FixedWidthField("win_refund_ticket_count_total", start=28877, length=11),
+    FixedWidthField("quinella_refund_ticket_count_total", start=28910, length=11),
+)
+
 
 def parse_minimal_ra_fields(record: JvDataRecord) -> dict[str, str]:
     _require_record_type(record, "RA")
@@ -122,6 +150,16 @@ def parse_minimal_o1_fields(record: JvDataRecord) -> dict[str, str]:
 def parse_minimal_o2_fields(record: JvDataRecord) -> dict[str, str]:
     _require_record_type(record, "O2")
     return parse_fixed_width_fields(record.text, JRAVAN_MINIMAL_O2_FIELDS)
+
+
+def parse_minimal_hr_fields(record: JvDataRecord) -> dict[str, str]:
+    _require_record_type(record, "HR")
+    return parse_fixed_width_fields(record.text, JRAVAN_MINIMAL_HR_FIELDS)
+
+
+def parse_minimal_h1_fields(record: JvDataRecord) -> dict[str, str]:
+    _require_record_type(record, "H1")
+    return parse_fixed_width_fields(record.text, JRAVAN_MINIMAL_H1_FIELDS)
 
 
 def _require_record_type(record: JvDataRecord, expected: str) -> None:

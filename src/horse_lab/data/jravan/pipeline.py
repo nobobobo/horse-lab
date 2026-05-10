@@ -7,8 +7,14 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping, TypeVar
 
 from horse_lab.data.jravan.exporters import write_staging_csvs
-from horse_lab.data.jravan.layouts import parse_minimal_se_fields
+from horse_lab.data.jravan.layouts import (
+    parse_minimal_h1_fields,
+    parse_minimal_se_fields,
+)
 from horse_lab.data.jravan.mappers import (
+    build_jravan_race_id,
+    map_h1_record_to_pool_sizes,
+    map_hr_record_to_payout_rows,
     map_o1_record_to_odds_quotes,
     map_o2_record_to_odds_quotes,
     map_ra_record_to_race,
@@ -20,7 +26,7 @@ from horse_lab.data.jravan.raw import (
     JvDataRecord,
     read_jvdata_records,
 )
-from horse_lab.schemas import Entry, OddsQuote, Race, Result
+from horse_lab.schemas import BetType, Entry, OddsQuote, Race, Result
 
 
 MappedRecord = TypeVar("MappedRecord")
@@ -44,6 +50,7 @@ class JraVanMappedDataset:
     entries: tuple[Entry, ...]
     results: tuple[Result, ...]
     odds: tuple[OddsQuote, ...]
+    payouts: tuple[Mapping[str, object], ...] = ()
     skipped_records: tuple[SkippedJvDataRecord, ...] = ()
 
 
@@ -75,6 +82,7 @@ def ingest_jvdata_file_to_staging(
         entries=dataset.entries,
         results=dataset.results,
         odds=dataset.odds,
+        payouts=dataset.payouts,
     )
     return JraVanStagingExport(dataset=dataset, csv_paths=csv_paths)
 
@@ -106,6 +114,7 @@ def ingest_jvdata_files_to_staging(
         entries=dataset.entries,
         results=dataset.results,
         odds=dataset.odds,
+        payouts=dataset.payouts,
     )
     return JraVanStagingExport(dataset=dataset, csv_paths=csv_paths)
 
@@ -183,6 +192,8 @@ def map_jvdata_records(
     entries_by_runner_id: dict[str, Entry] = {}
     results_by_entry_key: dict[tuple[str, str], Result] = {}
     odds_by_quote_key: dict[tuple[str, str, str, str], OddsQuote] = {}
+    payouts_by_key: dict[tuple[str, str, str], dict[str, object]] = {}
+    pool_sizes_by_race_bet_type: dict[tuple[str, BetType], int] = {}
     skipped_records: list[SkippedJvDataRecord] = []
 
     for record in records:
@@ -250,6 +261,25 @@ def map_jvdata_records(
                 odds_by_quote_key[quote_key] = quote
             continue
 
+        if record.record_type == "H1":
+            fields = _map_record(record, parse_minimal_h1_fields)
+            race_id = build_jravan_race_id(fields)
+            pools = _map_record(record, map_h1_record_to_pool_sizes)
+            for bet_type, pool_size_jpy in pools.items():
+                pool_sizes_by_race_bet_type[(str(race_id), bet_type)] = pool_size_jpy
+            continue
+
+        if record.record_type == "HR":
+            payout_rows = _map_record(record, map_hr_record_to_payout_rows)
+            for row in payout_rows:
+                payout_key = (
+                    str(row["race_id"]),
+                    str(row["runner_id"]),
+                    str(row["bet_type"]),
+                )
+                payouts_by_key[payout_key] = dict(row)
+            continue
+
         if skip_unknown_records:
             skipped_records.append(
                 SkippedJvDataRecord(
@@ -265,6 +295,11 @@ def map_jvdata_records(
             "Unsupported JV-Data record type "
             f"{record.record_type!r} at {_format_record_location(record)}"
         )
+
+    payouts = _fill_payout_pool_sizes(
+        payouts_by_key.values(),
+        pool_sizes_by_race_bet_type,
+    )
 
     return JraVanMappedDataset(
         races=tuple(
@@ -296,6 +331,16 @@ def map_jvdata_records(
                 ),
             )
         ),
+        payouts=tuple(
+            sorted(
+                payouts,
+                key=lambda row: (
+                    str(row.get("race_id", "")),
+                    str(row.get("bet_type", "")),
+                    str(row.get("runner_id", "")),
+                ),
+            )
+        ),
         skipped_records=tuple(skipped_records),
     )
 
@@ -318,6 +363,22 @@ def _format_record_location(record: JvDataRecord) -> str:
     if record.line_number is None:
         return source
     return f"{source}:{record.line_number}"
+
+
+def _fill_payout_pool_sizes(
+    payouts: Iterable[dict[str, object]],
+    pool_sizes_by_race_bet_type: Mapping[tuple[str, BetType], int],
+) -> list[dict[str, object]]:
+    filled: list[dict[str, object]] = []
+    for row in payouts:
+        next_row = dict(row)
+        if next_row.get("pool_size_jpy") in {None, ""}:
+            bet_type = BetType(str(next_row["bet_type"]))
+            next_row["pool_size_jpy"] = pool_sizes_by_race_bet_type.get(
+                (str(next_row["race_id"]), bet_type)
+            )
+        filled.append(next_row)
+    return filled
 
 
 def _is_unassigned_se_record(record: JvDataRecord) -> bool:

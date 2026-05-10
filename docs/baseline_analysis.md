@@ -2,15 +2,15 @@
 
 ## 対象データ
 
-2026-05-09 時点の baseline は、JRA-VAN `RACE` 日次 backfill から作った replay dataset を使う。
+2026-05-10 時点の baseline は、JRA-VAN `RACE` 日次 backfill と `0B41` realtime odds backfill から作った replay dataset を使う。
 
 - Raw run: `backfill_daily_RACE_20250509_20260509_v1`
 - 取得期間: 2025-05-09 から 2026-05-09
-- Staging: `races=3564`, `entries=48173`, `results=47660`, `odds=47487`
-- Replay dataset v1: `races=3283`, `feature_rows=45287`, `results=45287`, `odds=45287`
-- 再生成版: `jravan-replay-v2`
+- RACE staging: `races=3564`, `entries=48173`, `results=47660`, `odds=365501`, `payouts=6913`
+- Replay dataset v2: `races=3283`, `feature_rows=45287`, `results=45287`, `odds=45287`, `odds_timeseries=7054152`, `payouts=48582`
+- QA artifact: `artifacts/data_quality/daily_backfill_RACE_20250509_20260509_with_payouts_v1/report.json`
 
-`v1` は Phase 2/3 の基準線として有効。`v2` は `odds_timeseries.csv`、`payouts.csv`、market movement、expanded past-performance、jockey/trainer stats、categorical-safe person IDs を含む。
+`v2` は `0B41` の win odds time series、`HR/H1` 由来の official payout/pool、market movement、expanded past-performance、jockey/trainer stats、categorical-safe person IDs を含む。
 
 ## Market-Implied Baseline
 
@@ -51,6 +51,40 @@ LightGBM v1 の feature importance では `entry_win_odds` が gain の 57.8% �
 
 `jockey_id` / `trainer_id` は v2 で categorical として認識されるようになった。ID の大小を数値として学習する問題は解消した。
 
+## LightGBM Ablation
+
+2026-05-10 に official payout/pool と `0B41` odds time series を合流した dataset で ablation を実行した。
+
+- Artifact: `artifacts/lightgbm_ablation/daily_backfill_RACE_20250509_20260509_with_payouts_v1/ablation_summary.json`
+- Train: 2025-05-10 から 2026-02-28
+- Validation: 2026-03-01 から 2026-05-03
+- Train rows: 36788
+- Validation rows: 8499
+
+| Scenario | Log loss | Brier | ECE | 読み方 |
+| --- | ---: | ---: | ---: | --- |
+| full | 0.20793 | 0.05796 | 0.00976 | best。market + form/person/history を全部使う |
+| no_market | 0.22621 | 0.06144 | 0.00499 | market 系を抜くと大きく劣化。市場情報の寄与が非常に大きい |
+| no_movement | 0.20831 | 0.05805 | 0.01041 | odds movement を抜いても full と小差。現時点では entry/closing に近い odds が主信号 |
+
+`full` の top gain は `entry_win_odds` が 50.8%。`no_market` では `jockey_past_win_rate`、`last_finish_position`、`top3_rate_last5` が上位に来る。つまり market 非依存の signal は存在するが、単体では market-implied を上回るほど強くない。Phase 4 では OOF prediction と calibration で、market と非 market model の残差を重ねる方向がよい。
+
+## 馬連 Simulation
+
+`0B42` のローカル smoke data と `HR` official payout を使い、馬連 favorite strategy の settlement を確認した。
+
+- Odds: `data/interim/jravan/backfill_0B41_0B42_20250510_20250511_o2_v1/odds.csv`
+- Payouts: `data/processed/jravan/daily_backfill_RACE_20250509_20260509_with_payouts_v1/replay/payouts.csv`
+- Artifact: `artifacts/quinella_sim/backfill_0B42_20250510_20250511_v1/`
+- Races considered: 72
+- Bets: 72
+- Wins: 11
+- Stake: 7200 JPY
+- Payout: 5230 JPY
+- ROI: -27.36%
+
+これは収益戦略ではなく settlement smoke test。馬連の本格評価には `0B42` を過去1年分 staging 化し、favorite ではなく model probability / pair probability を出す必要がある。
+
 ## Phase 3.5 が必要な理由
 
 Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を再学習するだけの状態を避ける必要がある。
@@ -63,18 +97,19 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - Person stats: 騎手/調教師の target race 前 run count / win rate。
 - Categorical-safe IDs: `jockey:01020` / `trainer:04050` のように ID を順序数として扱わせない。
 
-現 `RACE` daily backfill では O1 odds が runner あたり 1 snapshot のため、`odds_open`、`odds_latest`、`odds_min`、`odds_max` が同値になり、movement 系特徴量は実質ゼロ情報になる。CLV と market movement を評価するには、`0B31/0B41` の realtime odds を日次で蓄積する必要がある。`0B41` O1 staging は `build_replay_dataset_from_staging(..., odds_staging_dirs=...)` で RACE staging の race/entry/result に odds だけ追加合流できる。
+`RACE` daily backfill 単体では O1 odds が runner あたり 1 snapshot のため、movement 系特徴量は実質ゼロ情報になる。`0B41` O1 staging を `build_replay_dataset_from_staging(..., odds_staging_dirs=...)` で合流すると、runner あたり odds snapshot 中央値は 152 になり、opening/latest/min/max、pool movement、CLV に進める。
 
 ## Phase Status
 
 - Phase 2: 完了。market baseline と LightGBM baseline を同じ time-series split で比較できる。
 - Phase 3: 完了。Kelly/backtest/paper trading artifact を出力できる。
-- Phase 3.5: 実装完了。`jravan-replay-v2` の実データ smoke build と LightGBM training が通る。
+- Phase 3.5: 完了。`jravan-replay-v2` の実データ build、official payout/pool ingest、LightGBM ablation が通る。
+- Phase 3.6: 完了。Data QA と馬連 settlement simulation が通る。
 
 Phase 4 に入る条件:
 
-- realtime odds を継続取得して movement / CLV を評価できる状態にする。
-- feature ablation で market 以外の情報価値を確認する。
+- `0B42` の過去1年 backfill を staging/replay 可能にする。
 - out-of-fold prediction store の schema を決める。
+- market model、form model、person/history model の OOF prediction を保存する。
 
 当面は収益最大化より、calibration、CLV、odds band / venue / surface / distance 別の歪み検出を優先する。

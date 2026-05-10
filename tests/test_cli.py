@@ -139,6 +139,7 @@ def test_jravan_ingest_cli_writes_staging_csvs(
         "entries": 1,
         "results": 1,
         "odds": 0,
+        "payouts": 0,
         "skipped_records": 1,
     }
 
@@ -367,6 +368,7 @@ def test_jravan_daily_market_replay_cli_runs_local_raw_workflow(
         "entries": 1,
         "results": 1,
         "odds": 1,
+        "payouts": 0,
         "skipped_records": 0,
     }
     assert summary["replay_dataset"]["report"]["output_counts"] == {

@@ -14,6 +14,12 @@ from horse_lab.backtesting.reports import (
     bet_decision_to_dict,
     write_backtest_artifacts,
 )
+from horse_lab.backtesting.quinella import (
+    QuinellaSimulationConfig,
+    QuinellaSimulationResult,
+    QuinellaStrategy,
+    run_quinella_simulation_from_csv,
+)
 
 __all__ = [
     "BacktestArtifactPaths",
@@ -23,7 +29,11 @@ __all__ = [
     "BetDecision",
     "BetRecord",
     "OddsTiming",
+    "QuinellaSimulationConfig",
+    "QuinellaSimulationResult",
+    "QuinellaStrategy",
     "backtest_config_to_dict",
     "bet_decision_to_dict",
+    "run_quinella_simulation_from_csv",
     "write_backtest_artifacts",
 ]

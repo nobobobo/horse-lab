@@ -6,6 +6,8 @@ from datetime import date, datetime
 from typing import Iterable, Mapping
 
 from horse_lab.data.jravan.layouts import (
+    parse_minimal_h1_fields,
+    parse_minimal_hr_fields,
     parse_minimal_o1_fields,
     parse_minimal_o2_fields,
     parse_minimal_ra_fields,
@@ -344,6 +346,131 @@ def map_o2_record_to_odds_quote(record: JvDataRecord) -> OddsQuote:
     return quotes[0]
 
 
+def map_hr_record_to_payout_rows(
+    record: JvDataRecord,
+    *,
+    pool_size_by_bet_type: Mapping[BetType, int] | None = None,
+) -> tuple[dict[str, object], ...]:
+    """Map HR official payout rows for the supported MVP bet types.
+
+    HR carries final settlement amounts. The MVP keeps only win and quinella,
+    because those line up with the current O1/O2 odds ingest surface.
+    """
+
+    fields = parse_minimal_hr_fields(record)
+    race_id = build_jravan_race_id(fields)
+    pools = pool_size_by_bet_type or {}
+    rows: list[dict[str, object]] = []
+
+    for horse_number, payout_jpy_per_100 in _iter_hr_win_payout_entries(fields):
+        rows.append(
+            {
+                "race_id": str(race_id),
+                "runner_id": f"{race_id}-{horse_number}",
+                "bet_type": BetType.WIN.value,
+                "finish_position": 1,
+                "is_win": True,
+                "payout_jpy_per_100": payout_jpy_per_100,
+                "odds": payout_jpy_per_100 / 100.0,
+                "pool_size_jpy": pools.get(BetType.WIN),
+                "source": "jravan_hr_official",
+            }
+        )
+
+    for horse1, horse2, payout_jpy_per_100 in _iter_hr_quinella_payout_entries(
+        fields
+    ):
+        rows.append(
+            {
+                "race_id": str(race_id),
+                "runner_id": f"{race_id}-{horse1}_{horse2}",
+                "bet_type": BetType.QUINELLA.value,
+                "finish_position": None,
+                "is_win": True,
+                "payout_jpy_per_100": payout_jpy_per_100,
+                "odds": payout_jpy_per_100 / 100.0,
+                "pool_size_jpy": pools.get(BetType.QUINELLA),
+                "source": "jravan_hr_official",
+            }
+        )
+
+    return tuple(rows)
+
+
+def map_h1_record_to_pool_sizes(record: JvDataRecord) -> dict[BetType, int]:
+    """Map H1 ticket totals into effective pool sizes in JPY."""
+
+    fields = parse_minimal_h1_fields(record)
+    pools: dict[BetType, int] = {}
+
+    win_total = _parse_ticket_count_or_none(
+        fields.get("win_ticket_count_total"),
+        "win_ticket_count_total",
+    )
+    win_refund = _parse_ticket_count_or_none(
+        fields.get("win_refund_ticket_count_total"),
+        "win_refund_ticket_count_total",
+    )
+    if win_total is not None and win_total > 0:
+        pools[BetType.WIN] = max(win_total - (win_refund or 0), 0) * 100
+
+    quinella_total = _parse_ticket_count_or_none(
+        fields.get("quinella_ticket_count_total"),
+        "quinella_ticket_count_total",
+    )
+    quinella_refund = _parse_ticket_count_or_none(
+        fields.get("quinella_refund_ticket_count_total"),
+        "quinella_refund_ticket_count_total",
+    )
+    if quinella_total is not None and quinella_total > 0:
+        pools[BetType.QUINELLA] = max(quinella_total - (quinella_refund or 0), 0) * 100
+
+    return pools
+
+
+def _iter_hr_win_payout_entries(
+    fields: Mapping[str, str],
+) -> Iterable[tuple[str, int]]:
+    block = fields.get("win_payout_entries", "")
+    raw_bytes = block.encode("cp932")
+    for index in range(3):
+        entry_bytes = raw_bytes[index * 13 : (index + 1) * 13]
+        if not entry_bytes.strip():
+            continue
+        entry = entry_bytes.decode("cp932")
+        horse_number = entry[0:2].strip()
+        payout = _parse_payout_jpy_per_100_or_none(entry[2:11])
+        if payout is None:
+            continue
+        if len(horse_number) != 2 or not horse_number.isdigit() or horse_number == "00":
+            raise ValueError(f"Invalid HR win horse_number: {horse_number!r}")
+        yield horse_number, payout
+
+
+def _iter_hr_quinella_payout_entries(
+    fields: Mapping[str, str],
+) -> Iterable[tuple[str, str, int]]:
+    block = fields.get("quinella_payout_entries", "")
+    raw_bytes = block.encode("cp932")
+    for index in range(3):
+        entry_bytes = raw_bytes[index * 16 : (index + 1) * 16]
+        if not entry_bytes.strip():
+            continue
+        entry = entry_bytes.decode("cp932")
+        horse1 = entry[0:2].strip()
+        horse2 = entry[2:4].strip()
+        payout = _parse_payout_jpy_per_100_or_none(entry[4:13])
+        if payout is None:
+            continue
+        _validate_o2_pair_horse_number(horse1, "horse1")
+        _validate_o2_pair_horse_number(horse2, "horse2")
+        if horse1 == horse2:
+            raise ValueError(f"Invalid HR quinella pair: {horse1!r}_{horse2!r}")
+        if horse2 < horse1:
+            horse1, horse2 = horse2, horse1
+        yield horse1, horse2, payout
+
+
 def _iter_o1_win_odds_entries(
     fields: Mapping[str, str],
 ) -> Iterable[tuple[str, float, int | None]]:
@@ -471,6 +598,29 @@ def _parse_pool_size_jpy_x100(
 ) -> int | None:
     pool_size_x100 = _parse_optional_int(value, field_name)
     return pool_size_x100 * 100 if pool_size_x100 is not None else None
+
+
+def _parse_payout_jpy_per_100_or_none(value: str) -> int | None:
+    normalized = _optional_str(value)
+    if normalized is None:
+        return None
+    if set(normalized) in ({"0"}, {"-"}, {"*"}):
+        return None
+    if not normalized.isdigit():
+        raise ValueError(f"Invalid HR payout_jpy_per_100: {value!r}")
+    payout = int(normalized)
+    return payout if payout > 0 else None
+
+
+def _parse_ticket_count_or_none(value: str | None, field_name: str) -> int | None:
+    normalized = _optional_str(value)
+    if normalized is None:
+        return None
+    if set(normalized) in ({"-"}, {"*"}):
+        return None
+    if not normalized.isdigit():
+        raise ValueError(f"Invalid ticket count for {field_name}: {value!r}")
+    return int(normalized)
 
 
 def _surface_from_track_code(track_code: str | None) -> Surface:

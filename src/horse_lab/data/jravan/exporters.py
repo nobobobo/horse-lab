@@ -230,6 +230,7 @@ def write_staging_csvs(
     entries: Sequence[Entry],
     results: Sequence[Result],
     odds: Sequence[OddsQuote] = (),
+    payouts: Sequence[dict[str, object]] | None = None,
 ) -> dict[str, Path]:
     target = Path(directory)
     paths = {
@@ -238,10 +239,14 @@ def write_staging_csvs(
         "results": target / "results.csv",
         "odds": target / "odds.csv",
     }
+    if payouts is not None:
+        paths["payouts"] = target / "payouts.csv"
     write_races_csv(paths["races"], races)
     write_entries_csv(paths["entries"], entries)
     write_results_csv(paths["results"], results)
     write_odds_csv(paths["odds"], odds)
+    if payouts is not None:
+        write_payouts_csv(paths["payouts"], payouts)
     return paths
 
 

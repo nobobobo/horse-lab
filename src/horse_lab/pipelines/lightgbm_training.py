@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 from horse_lab.data import (
     CsvFeatureRepository,
@@ -64,6 +64,39 @@ class LightGBMTrainingResult:
     feature_importances: tuple[dict[str, Any], ...]
 
 
+MARKET_FEATURE_NAMES: tuple[FeatureName, ...] = (
+    FeatureName("entry_win_odds"),
+    FeatureName("entry_popularity_rank"),
+    FeatureName("odds_open"),
+    FeatureName("odds_latest"),
+    FeatureName("odds_min"),
+    FeatureName("odds_max"),
+    FeatureName("odds_snapshot_count"),
+    FeatureName("odds_change_open_to_latest"),
+    FeatureName("implied_probability_change_open_to_latest"),
+    FeatureName("pool_size_latest_jpy"),
+    FeatureName("last_odds"),
+    FeatureName("avg_odds_last3"),
+)
+
+ODDS_MOVEMENT_FEATURE_NAMES: tuple[FeatureName, ...] = (
+    FeatureName("odds_open"),
+    FeatureName("odds_latest"),
+    FeatureName("odds_min"),
+    FeatureName("odds_max"),
+    FeatureName("odds_snapshot_count"),
+    FeatureName("odds_change_open_to_latest"),
+    FeatureName("implied_probability_change_open_to_latest"),
+    FeatureName("pool_size_latest_jpy"),
+)
+
+DEFAULT_LIGHTGBM_ABLATION_SCENARIOS: dict[str, tuple[FeatureName, ...]] = {
+    "full": (),
+    "no_market": MARKET_FEATURE_NAMES,
+    "no_movement": ODDS_MOVEMENT_FEATURE_NAMES,
+}
+
+
 def run_lightgbm_training_from_csv(
     dataset_dir: Path | str,
     artifact_dir: Path | str,
@@ -76,6 +109,7 @@ def run_lightgbm_training_from_csv(
     random_seed: int = 42,
     model_version: str = "lightgbm-win-v1",
     estimator_factory: EstimatorFactory | None = None,
+    exclude_feature_names: Sequence[str | FeatureName] = (),
 ) -> LightGBMTrainingResult:
     """Train and validate the LightGBM baseline from replay-ready CSV files."""
 
@@ -94,7 +128,68 @@ def run_lightgbm_training_from_csv(
         random_seed=random_seed,
         model_version=model_version,
         estimator_factory=estimator_factory,
+        exclude_feature_names=exclude_feature_names,
     )
+
+
+def run_lightgbm_ablation_from_csv(
+    dataset_dir: Path | str,
+    artifact_dir: Path | str,
+    *,
+    train_end_date: date,
+    valid_start_date: date,
+    valid_end_date: date,
+    as_of: datetime,
+    feature_version: str,
+    random_seed: int = 42,
+    model_version: str = "lightgbm-win-v1",
+    scenarios: Mapping[str, Sequence[str | FeatureName]] | None = None,
+    estimator_factory: EstimatorFactory | None = None,
+) -> dict[str, Any]:
+    """Run focused LightGBM feature ablations and write an aggregate summary."""
+
+    selected_scenarios = scenarios or DEFAULT_LIGHTGBM_ABLATION_SCENARIOS
+    artifact_path = Path(artifact_dir)
+    scenario_summaries: dict[str, Any] = {}
+    for scenario_name, excluded_features in selected_scenarios.items():
+        result = run_lightgbm_training_from_csv(
+            dataset_dir,
+            artifact_path / scenario_name,
+            train_end_date=train_end_date,
+            valid_start_date=valid_start_date,
+            valid_end_date=valid_end_date,
+            as_of=as_of,
+            feature_version=feature_version,
+            random_seed=random_seed,
+            model_version=f"{model_version}-{scenario_name}",
+            estimator_factory=estimator_factory,
+            exclude_feature_names=excluded_features,
+        )
+        summary = lightgbm_training_result_to_dict(result)
+        summary["excluded_feature_names"] = [
+            str(name) for name in _normalize_feature_names(excluded_features)
+        ]
+        scenario_summaries[scenario_name] = summary
+
+    best_by_log_loss = min(
+        scenario_summaries,
+        key=lambda name: scenario_summaries[name]["probability"]["log_loss"],
+    )
+    aggregate = {
+        "dataset_dir": str(dataset_dir),
+        "artifact_dir": str(artifact_path),
+        "split": {
+            "train_end_date": train_end_date.isoformat(),
+            "valid_start_date": valid_start_date.isoformat(),
+            "valid_end_date": valid_end_date.isoformat(),
+            "as_of": as_of.isoformat(),
+        },
+        "feature_version": feature_version,
+        "scenarios": scenario_summaries,
+        "best_by_log_loss": best_by_log_loss,
+    }
+    _write_json_file(artifact_path / "ablation_summary.json", aggregate)
+    return aggregate
 
 
 def _replay_odds_csv_path(dataset_path: Path) -> Path:
@@ -119,6 +214,7 @@ def run_lightgbm_training(
     random_seed: int = 42,
     model_version: str = "lightgbm-win-v1",
     estimator_factory: EstimatorFactory | None = None,
+    exclude_feature_names: Sequence[str | FeatureName] = (),
 ) -> LightGBMTrainingResult:
     """Train on races up to ``train_end_date`` and validate on a later window."""
 
@@ -180,6 +276,14 @@ def run_lightgbm_training(
         results=validation_results,
         label="validation",
     )
+
+    excluded = _normalize_feature_names(exclude_feature_names)
+    if excluded:
+        train_feature_rows = _filter_feature_rows(train_feature_rows, excluded)
+        validation_feature_rows = _filter_feature_rows(
+            validation_feature_rows,
+            excluded,
+        )
 
     training_dataset = TrainingDataset(
         feature_rows=train_feature_rows,
@@ -325,6 +429,34 @@ def _feature_names(feature_rows: tuple[FeatureRow, ...]) -> tuple[FeatureName, .
     if not names:
         raise ValueError("Training feature rows must contain at least one feature")
     return tuple(sorted(names, key=str))
+
+
+def _normalize_feature_names(
+    feature_names: Sequence[str | FeatureName],
+) -> tuple[FeatureName, ...]:
+    return tuple(sorted({FeatureName(str(name)) for name in feature_names}, key=str))
+
+
+def _filter_feature_rows(
+    feature_rows: tuple[FeatureRow, ...],
+    excluded_feature_names: Sequence[FeatureName],
+) -> tuple[FeatureRow, ...]:
+    excluded = set(excluded_feature_names)
+    return tuple(
+        FeatureRow(
+            race_id=row.race_id,
+            runner_id=row.runner_id,
+            as_of=row.as_of,
+            feature_version=row.feature_version,
+            values={
+                feature_name: value
+                for feature_name, value in row.values.items()
+                if feature_name not in excluded
+            },
+            metadata=row.metadata,
+        )
+        for row in feature_rows
+    )
 
 
 def _validate_rows_have_results(

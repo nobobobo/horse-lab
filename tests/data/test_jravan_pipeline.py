@@ -12,6 +12,8 @@ from horse_lab.data.csv_parsing import (
 from horse_lab.data.jravan import (
     JRAVAN_MINIMAL_O1_FIELDS,
     JRAVAN_MINIMAL_O2_FIELDS,
+    JRAVAN_MINIMAL_H1_FIELDS,
+    JRAVAN_MINIMAL_HR_FIELDS,
     JRAVAN_MINIMAL_RA_FIELDS,
     JRAVAN_MINIMAL_SE_FIELDS,
     FixedWidthField,
@@ -161,6 +163,60 @@ def _o2_quinella_entries(*entries: tuple[str, str, str, str]) -> str:
     return encoded.ljust(1989)
 
 
+def _hr_text(**overrides: str) -> str:
+    values = {
+        "record_type": "HR",
+        "data_kubun": "7",
+        "data_created_date": "20260508",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "win_payout_entries": _hr_win_entries(("07", "000000350", "02")),
+        "quinella_payout_entries": _hr_quinella_entries(
+            ("01", "07", "000003500", "002"),
+        ),
+    }
+    values.update(overrides)
+    return _fixed_width_text(JRAVAN_MINIMAL_HR_FIELDS, values)
+
+
+def _hr_win_entries(*entries: tuple[str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse_number:>2}{payout:>9}{popularity_rank:>2}"
+        for horse_number, payout, popularity_rank in entries
+    )
+    return encoded.ljust(39)
+
+
+def _hr_quinella_entries(*entries: tuple[str, str, str, str]) -> str:
+    encoded = "".join(
+        f"{horse1:>2}{horse2:>2}{payout:>9}{popularity_rank:>3}"
+        for horse1, horse2, payout, popularity_rank in entries
+    )
+    return encoded.ljust(48)
+
+
+def _h1_text(**overrides: str) -> str:
+    values = {
+        "record_type": "H1",
+        "data_kubun": "7",
+        "data_created_date": "20260508",
+        "race_date": "20260508",
+        "venue_code": "05",
+        "kaiji": "01",
+        "nichiji": "01",
+        "race_number": "01",
+        "win_ticket_count_total": "00000100000",
+        "quinella_ticket_count_total": "00000200000",
+        "win_refund_ticket_count_total": "00000000100",
+        "quinella_refund_ticket_count_total": "00000000200",
+    }
+    values.update(overrides)
+    return _fixed_width_text(JRAVAN_MINIMAL_H1_FIELDS, values)
+
+
 def _write_raw_file(path: Path, *lines: str) -> None:
     path.write_bytes(("\r\n".join(lines) + "\r\n").encode("cp932"))
 
@@ -210,6 +266,39 @@ def test_map_jvdata_records_maps_o2_quinella_odds_without_skipping():
     assert dataset.odds[0].odds == 35.0
     assert len(dataset.skipped_records) == 1
     assert dataset.skipped_records[0].record_type == "ZZ"
+
+
+def test_map_jvdata_records_maps_official_payouts_and_pool_sizes():
+    records = [
+        parse_jvdata_record(_hr_text(), line_number=1),
+        parse_jvdata_record(_h1_text(), line_number=2),
+    ]
+
+    dataset = map_jvdata_records(records)
+
+    assert len(dataset.payouts) == 2
+    assert dataset.payouts[0]["bet_type"] == "quinella"
+    assert dataset.payouts[0]["runner_id"] == "2026050805010101-01_07"
+    assert dataset.payouts[0]["payout_jpy_per_100"] == 3500
+    assert dataset.payouts[0]["pool_size_jpy"] == 19_980_000
+    assert dataset.payouts[1]["bet_type"] == "win"
+    assert dataset.payouts[1]["runner_id"] == "2026050805010101-07"
+    assert dataset.payouts[1]["payout_jpy_per_100"] == 350
+    assert dataset.payouts[1]["pool_size_jpy"] == 9_990_000
+
+
+def test_ingest_jvdata_file_to_staging_writes_official_payouts_csv(tmp_path: Path):
+    raw_path = tmp_path / "jvdata.txt"
+    _write_raw_file(raw_path, _ra_text(), _se_text(), _hr_text(), _h1_text())
+
+    export = ingest_jvdata_file_to_staging(raw_path, tmp_path / "staging")
+
+    payout_rows = read_csv_rows(export.csv_paths["payouts"])
+    assert len(export.dataset.payouts) == 2
+    assert payout_rows[0]["bet_type"] == "quinella"
+    assert payout_rows[0]["pool_size_jpy"] == "19980000"
+    assert payout_rows[1]["bet_type"] == "win"
+    assert payout_rows[1]["payout_jpy_per_100"] == "350"
 
 
 def test_map_jvdata_records_skips_unassigned_se_records():

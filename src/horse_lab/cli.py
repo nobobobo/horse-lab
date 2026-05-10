@@ -9,10 +9,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Sequence
 
+from horse_lab.analysis import build_replay_data_quality_report
 from horse_lab.backtesting import (
     BacktestConfig,
     OddsTiming,
+    QuinellaSimulationConfig,
+    QuinellaStrategy,
     backtest_config_to_dict,
+    run_quinella_simulation_from_csv,
     write_backtest_artifacts,
 )
 from horse_lab.betting import KellyConfig
@@ -39,6 +43,7 @@ from horse_lab.data.jravan.raw import JV_DATA_ENCODING
 from horse_lab.evaluation import PerformanceSummary, ProbabilitySummary
 from horse_lab.pipelines import (
     lightgbm_training_result_to_dict,
+    run_lightgbm_ablation_from_csv,
     run_lightgbm_training_from_csv,
     run_market_replay,
 )
@@ -149,6 +154,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay_dataset_parser.set_defaults(handler=_handle_jravan_build_replay_dataset)
 
+    data_qa_parser = subparsers.add_parser(
+        "jravan-data-qa",
+        help="Build a coverage and integrity report for a replay dataset.",
+    )
+    data_qa_parser.add_argument("dataset_dir", type=Path)
+    data_qa_parser.add_argument("output_path", type=Path)
+    data_qa_parser.set_defaults(handler=_handle_jravan_data_qa)
+
     market_replay_parser = subparsers.add_parser(
         "market-replay",
         help="Run the market-implied baseline over a replay-ready CSV dataset.",
@@ -176,6 +189,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_backtest_options(market_replay_parser)
     market_replay_parser.set_defaults(handler=_handle_market_replay)
+
+    quinella_parser = subparsers.add_parser(
+        "quinella-sim",
+        help="Run a quinella simulation from O2 odds and official payouts CSVs.",
+    )
+    quinella_parser.add_argument("odds_csv", type=Path)
+    quinella_parser.add_argument("payouts_csv", type=Path)
+    quinella_parser.add_argument("artifact_dir", type=Path)
+    quinella_parser.add_argument("--start-date", type=_parse_cli_date, required=True)
+    quinella_parser.add_argument("--end-date", type=_parse_cli_date, required=True)
+    quinella_parser.add_argument(
+        "--strategy",
+        choices=[strategy.value for strategy in QuinellaStrategy],
+        default=QuinellaStrategy.FAVORITE.value,
+    )
+    quinella_parser.add_argument("--initial-bankroll-jpy", type=int, default=100_000)
+    quinella_parser.add_argument("--stake-jpy", type=int, default=100)
+    quinella_parser.add_argument("--minimum-edge", type=float, default=0.0)
+    quinella_parser.add_argument("--max-bets-per-race", type=int, default=1)
+    quinella_parser.set_defaults(handler=_handle_quinella_sim)
 
     lightgbm_parser = subparsers.add_parser(
         "lightgbm-train",
@@ -206,7 +239,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lightgbm_parser.add_argument("--random-seed", type=int, default=42)
     lightgbm_parser.add_argument("--model-version", default="lightgbm-win-v1")
+    lightgbm_parser.add_argument(
+        "--exclude-feature",
+        action="append",
+        default=(),
+        help="Feature name to exclude from training. Can be supplied multiple times.",
+    )
     lightgbm_parser.set_defaults(handler=_handle_lightgbm_train)
+
+    lightgbm_ablation_parser = subparsers.add_parser(
+        "lightgbm-ablation",
+        help="Run full/no-market/no-movement LightGBM ablation scenarios.",
+    )
+    lightgbm_ablation_parser.add_argument("dataset_dir", type=Path)
+    lightgbm_ablation_parser.add_argument("artifact_dir", type=Path)
+    lightgbm_ablation_parser.add_argument(
+        "--train-end-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_ablation_parser.add_argument(
+        "--valid-start-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_ablation_parser.add_argument(
+        "--valid-end-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_ablation_parser.add_argument(
+        "--as-of",
+        type=_parse_cli_datetime,
+        required=True,
+    )
+    lightgbm_ablation_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+    )
+    lightgbm_ablation_parser.add_argument("--random-seed", type=int, default=42)
+    lightgbm_ablation_parser.add_argument("--model-version", default="lightgbm-win-v1")
+    lightgbm_ablation_parser.set_defaults(handler=_handle_lightgbm_ablation)
 
     daily_replay_parser = subparsers.add_parser(
         "jravan-daily-market-replay",
@@ -298,6 +371,7 @@ def _handle_jravan_ingest(args: argparse.Namespace) -> dict[str, object]:
             "entries": len(dataset.entries),
             "results": len(dataset.results),
             "odds": len(dataset.odds),
+            "payouts": len(dataset.payouts),
             "skipped_records": len(dataset.skipped_records),
         },
         "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
@@ -324,6 +398,7 @@ def _handle_jravan_ingest_dir(args: argparse.Namespace) -> dict[str, object]:
             "entries": len(dataset.entries),
             "results": len(dataset.results),
             "odds": len(dataset.odds),
+            "payouts": len(dataset.payouts),
             "skipped_records": len(dataset.skipped_records),
         },
         "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
@@ -368,6 +443,10 @@ def _handle_jravan_build_replay_dataset(
         "report_path": str(export.report_path),
         "report": replay_dataset_report_to_dict(export.report),
     }
+
+
+def _handle_jravan_data_qa(args: argparse.Namespace) -> dict[str, object]:
+    return build_replay_data_quality_report(args.dataset_dir, args.output_path)
 
 
 def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
@@ -416,6 +495,28 @@ def _handle_market_replay(args: argparse.Namespace) -> dict[str, object]:
     return summary
 
 
+def _handle_quinella_sim(args: argparse.Namespace) -> dict[str, object]:
+    result = run_quinella_simulation_from_csv(
+        args.odds_csv,
+        args.payouts_csv,
+        args.artifact_dir,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        config=QuinellaSimulationConfig(
+            initial_bankroll_jpy=args.initial_bankroll_jpy,
+            stake_jpy=args.stake_jpy,
+            strategy=args.strategy,
+            minimum_edge=args.minimum_edge,
+            max_bets_per_race=args.max_bets_per_race,
+        ),
+    )
+    return {
+        "summary": result.summary,
+        "summary_path": str(result.summary_path),
+        "decisions_path": str(result.decisions_path),
+    }
+
+
 def _replay_odds_csv_path(dataset_dir: Path) -> Path:
     odds_timeseries_path = dataset_dir / "odds_timeseries.csv"
     if odds_timeseries_path.exists():
@@ -434,6 +535,7 @@ def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:
         feature_version=args.feature_version,
         random_seed=args.random_seed,
         model_version=args.model_version,
+        exclude_feature_names=args.exclude_feature,
     )
     summary = lightgbm_training_result_to_dict(result)
     summary["dataset_dir"] = str(args.dataset_dir)
@@ -445,6 +547,20 @@ def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:
         "as_of": args.as_of.isoformat(),
     }
     return summary
+
+
+def _handle_lightgbm_ablation(args: argparse.Namespace) -> dict[str, object]:
+    return run_lightgbm_ablation_from_csv(
+        args.dataset_dir,
+        args.artifact_dir,
+        train_end_date=args.train_end_date,
+        valid_start_date=args.valid_start_date,
+        valid_end_date=args.valid_end_date,
+        as_of=args.as_of,
+        feature_version=args.feature_version,
+        random_seed=args.random_seed,
+        model_version=args.model_version,
+    )
 
 
 def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, object]:
@@ -498,6 +614,7 @@ def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, ob
             "entries": len(ingest_export.dataset.entries),
             "results": len(ingest_export.dataset.results),
             "odds": len(ingest_export.dataset.odds),
+            "payouts": len(ingest_export.dataset.payouts),
             "skipped_records": len(ingest_export.dataset.skipped_records),
         },
         "csv_paths": {
