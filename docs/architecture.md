@@ -86,6 +86,13 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - LightGBM ablation は `full`、`no_market`、`no_movement` を同一 split で比較する。
 - `0B42` 馬連 odds と official payout を使う `quinella-sim` を追加。現在は favorite / positive-edge strategy の settlement 検証が目的。
 
+### Phase 3.7: Phase 4 足場 実装中
+
+- `0B42` O2 staging から pair-level 馬連 replay dataset を作る CLI を追加。
+- 2日分 smoke では `races=72`、latest pair odds `6559`、odds time series `954372`、official payout `68` を生成できた。
+- Stacking 用の OOF prediction store schema を追加。`prediction_role`、`fold_id`、train/validation window、`feature_version`、model version、target、probability、metadata を CSV に保存する。
+- Phase 4 の次実装は、market/form/person-history model の OOF prediction 生成と、meta learner 入力 dataset の作成。
+
 ### Phase 4: Ensemble 次フェーズ
 
 Phase 4 は以下が揃ってから入る。
@@ -124,6 +131,7 @@ horse-lab market-replay data/processed/jravan/<run_id>/replay --start-date YYYY-
 horse-lab lightgbm-train data/processed/jravan/<run_id>/replay artifacts/lightgbm/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-ablation data/processed/jravan/<run_id>/replay artifacts/lightgbm_ablation/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab jravan-data-qa data/processed/jravan/<run_id>/replay artifacts/data_quality/<run_id>/report.json
+horse-lab jravan-build-quinella-replay-dataset data/interim/jravan/<o2_run_id> data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 horse-lab quinella-sim data/interim/jravan/<o2_run_id>/odds.csv data/processed/jravan/<run_id>/replay/payouts.csv artifacts/quinella_sim/<run_id> --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 ```
 

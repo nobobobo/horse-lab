@@ -56,9 +56,17 @@ def test_pipeline_imports():
     assert callable(run_market_replay)
 
 
+def test_stacking_imports():
+    from horse_lab.stacking import PredictionRole, StoredPrediction
+
+    assert PredictionRole.OOF.value == "oof"
+    assert StoredPrediction.__name__ == "StoredPrediction"
+
+
 def test_jravan_ingestion_helpers_import():
     from horse_lab.data.jravan import (
         JvDataRecord,
+        build_quinella_replay_dataset_from_staging,
         build_replay_dataset_from_staging,
         build_jravan_runner_id,
         build_jravan_s3_raw_sync_plan,
@@ -80,6 +88,7 @@ def test_jravan_ingestion_helpers_import():
     )
 
     assert JvDataRecord.__name__ == "JvDataRecord"
+    assert callable(build_quinella_replay_dataset_from_staging)
     assert callable(build_replay_dataset_from_staging)
     assert callable(build_jravan_runner_id)
     assert callable(build_jravan_s3_raw_sync_plan)

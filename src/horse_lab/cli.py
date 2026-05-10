@@ -31,9 +31,11 @@ from horse_lab.data.jravan import (
     DEFAULT_JRAVAN_S3_RAW_PREFIX,
     DEFAULT_REPLAY_FEATURE_VERSION,
     build_replay_dataset_from_staging,
+    build_quinella_replay_dataset_from_staging,
     build_jravan_s3_raw_sync_plan,
     ingest_jvdata_directory_to_staging,
     ingest_jvdata_file_to_staging,
+    quinella_replay_dataset_report_to_dict,
     render_sync_command,
     replay_dataset_report_to_dict,
     sync_jravan_raw_from_s3,
@@ -153,6 +155,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     replay_dataset_parser.set_defaults(handler=_handle_jravan_build_replay_dataset)
+
+    quinella_dataset_parser = subparsers.add_parser(
+        "jravan-build-quinella-replay-dataset",
+        help="Build a pair-level quinella replay dataset from O2 staging odds.",
+    )
+    quinella_dataset_parser.add_argument("odds_staging_dir", type=Path)
+    quinella_dataset_parser.add_argument("payouts_csv", type=Path)
+    quinella_dataset_parser.add_argument("output_dir", type=Path)
+    quinella_dataset_parser.add_argument("--start-date", type=_parse_cli_date)
+    quinella_dataset_parser.add_argument("--end-date", type=_parse_cli_date)
+    quinella_dataset_parser.set_defaults(
+        handler=_handle_jravan_build_quinella_replay_dataset
+    )
 
     data_qa_parser = subparsers.add_parser(
         "jravan-data-qa",
@@ -442,6 +457,26 @@ def _handle_jravan_build_replay_dataset(
         "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
         "report_path": str(export.report_path),
         "report": replay_dataset_report_to_dict(export.report),
+    }
+
+
+def _handle_jravan_build_quinella_replay_dataset(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    export = build_quinella_replay_dataset_from_staging(
+        args.odds_staging_dir,
+        args.payouts_csv,
+        args.output_dir,
+        start_date=args.start_date,
+        end_date=args.end_date,
+    )
+    return {
+        "odds_staging_dir": str(args.odds_staging_dir),
+        "payouts_csv": str(args.payouts_csv),
+        "output_dir": str(args.output_dir),
+        "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
+        "report_path": str(export.report_path),
+        "report": quinella_replay_dataset_report_to_dict(export.report),
     }
 
 

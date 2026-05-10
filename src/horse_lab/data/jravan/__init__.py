@@ -70,6 +70,13 @@ from horse_lab.data.jravan.replay_dataset import (
     replay_dataset_report_to_dict,
     write_feature_rows_csv,
 )
+from horse_lab.data.jravan.quinella_replay_dataset import (
+    QUINELLA_REPLAY_REPORT_FILENAME,
+    QuinellaReplayDatasetExport,
+    QuinellaReplayDatasetReport,
+    build_quinella_replay_dataset_from_staging,
+    quinella_replay_dataset_report_to_dict,
+)
 from horse_lab.data.jravan.s3 import (
     DEFAULT_JRAVAN_S3_BUCKET,
     DEFAULT_JRAVAN_S3_RAW_PREFIX,
@@ -107,7 +114,10 @@ __all__ = [
     "JvDataRecord",
     "ODDS_CSV_FIELDS",
     "PAYOUT_CSV_FIELDS",
+    "QUINELLA_REPLAY_REPORT_FILENAME",
     "RACE_CSV_FIELDS",
+    "QuinellaReplayDatasetExport",
+    "QuinellaReplayDatasetReport",
     "REPLAY_REPORT_FILENAME",
     "RESULT_CSV_FIELDS",
     "ReplayDatasetExport",
@@ -118,6 +128,7 @@ __all__ = [
     "build_jravan_race_id",
     "build_jravan_runner_id",
     "build_jravan_s3_raw_sync_plan",
+    "build_quinella_replay_dataset_from_staging",
     "entry_to_csv_row",
     "ingest_jvdata_directory_to_staging",
     "ingest_jvdata_file_to_staging",
@@ -144,6 +155,7 @@ __all__ = [
     "race_to_csv_row",
     "read_jvdata_records",
     "render_sync_command",
+    "quinella_replay_dataset_report_to_dict",
     "replay_dataset_report_to_dict",
     "result_to_csv_row",
     "sync_jravan_raw_from_s3",

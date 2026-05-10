@@ -85,6 +85,16 @@ LightGBM v1 の feature importance では `entry_win_odds` が gain の 57.8% �
 
 これは収益戦略ではなく settlement smoke test。馬連の本格評価には `0B42` を過去1年分 staging 化し、favorite ではなく model probability / pair probability を出す必要がある。
 
+`jravan-build-quinella-replay-dataset` で O2 staging から pair-level replay dataset も生成できるようにした。
+
+- Dataset: `data/processed/jravan/quinella_backfill_0B42_20250510_20250511_v1/replay`
+- Races: 72
+- Latest pair odds: 6559
+- Odds time series: 954372
+- Official payout rows: 68
+
+この dataset の `odds.csv` と `payouts.csv` を `quinella-sim` に渡すと、上記 favorite simulation と同じ settlement 結果になる。
+
 ## Phase 3.5 が必要な理由
 
 Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を再学習するだけの状態を避ける必要がある。
@@ -109,7 +119,6 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 Phase 4 に入る条件:
 
 - `0B42` の過去1年 backfill を staging/replay 可能にする。
-- out-of-fold prediction store の schema を決める。
-- market model、form model、person/history model の OOF prediction を保存する。
+- market / form / person-history model の OOF prediction を生成して store に保存する。
 
 当面は収益最大化より、calibration、CLV、odds band / venue / surface / distance 別の歪み検出を優先する。
