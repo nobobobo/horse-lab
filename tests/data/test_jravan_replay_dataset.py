@@ -4,6 +4,7 @@ from pathlib import Path
 
 from horse_lab.cli import main
 from horse_lab.data.csv_parsing import (
+    parse_entry_row,
     parse_feature_row,
     parse_odds_quote_row,
     parse_race_row,
@@ -159,6 +160,7 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     )
 
     assert export.report.races_written == 1
+    assert export.report.entries_written == 2
     assert export.report.feature_rows_written == 2
     assert export.report.results_written == 2
     assert export.report.odds_written == 2
@@ -167,6 +169,9 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     ]
 
     races = [parse_race_row(row) for row in read_csv_rows(output_dir / "races.csv")]
+    entries = [
+        parse_entry_row(row) for row in read_csv_rows(output_dir / "entries.csv")
+    ]
     features = [
         parse_feature_row(row) for row in read_csv_rows(output_dir / "features.csv")
     ]
@@ -181,6 +186,7 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
 
     assert [race.race_id for race in races] == [RaceId("2026050805010101")]
     assert races[0].field_size == 2
+    assert {entry.horse_id for entry in entries} == {HorseId("horse-1"), HorseId("horse-2")}
     assert len(features) == 2
     assert {row.feature_version for row in features} == {"fixture-replay-v1"}
     assert features[0].values[FeatureName("horse_number")] == 1
@@ -233,6 +239,7 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     assert report == replay_dataset_report_to_dict(export.report)
     assert report["output_counts"]["odds_timeseries"] == 3
     assert report["output_counts"]["payouts"] == 2
+    assert report["output_counts"]["entries"] == 2
 
 
 def test_build_replay_dataset_prefers_official_payouts_when_available(tmp_path):

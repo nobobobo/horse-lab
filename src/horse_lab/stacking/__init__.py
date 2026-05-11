@@ -7,6 +7,14 @@ from horse_lab.stacking.blend import (
     search_convex_blend,
     search_convex_blend_from_csv,
 )
+from horse_lab.stacking.calibration import (
+    CALIBRATED_PREDICTION_FIELDS,
+    MarketCalibrationModel,
+    MarketCalibrationStudyResult,
+    market_calibration_study_result_to_dict,
+    run_market_calibration_study,
+    run_market_calibration_study_from_csv,
+)
 from horse_lab.stacking.meta_dataset import (
     META_DATASET_BASE_FIELDS,
     MetaDatasetBuildResult,
@@ -46,12 +54,15 @@ from horse_lab.stacking.prediction_store import (
 __all__ = [
     "BlendSearchResult",
     "ConvexBlendModel",
+    "CALIBRATED_PREDICTION_FIELDS",
     "META_DATASET_BASE_FIELDS",
     "META_PREDICTION_FIELDS",
     "OOF_PREDICTION_CSV_FIELDS",
     "SEGMENT_METRIC_FIELDS",
     "WALKFORWARD_PREDICTION_FIELDS",
     "LogisticMetaModel",
+    "MarketCalibrationModel",
+    "MarketCalibrationStudyResult",
     "MetaFeatureRow",
     "MetaDatasetBuildResult",
     "MetaLearnerTrainingResult",
@@ -63,6 +74,7 @@ __all__ = [
     "blend_search_result_to_dict",
     "meta_dataset_build_result_to_dict",
     "meta_learner_training_result_to_dict",
+    "market_calibration_study_result_to_dict",
     "model_prediction_to_stored_prediction",
     "model_prediction_column",
     "read_meta_feature_rows",
@@ -70,6 +82,8 @@ __all__ = [
     "phase4_study_result_to_dict",
     "run_phase4_study",
     "run_phase4_study_from_csv",
+    "run_market_calibration_study",
+    "run_market_calibration_study_from_csv",
     "search_convex_blend",
     "search_convex_blend_from_csv",
     "stored_prediction_to_csv_row",

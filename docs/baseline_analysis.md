@@ -223,6 +223,23 @@ Daily result:
 
 Phase 5 + Phase 6 を aggregate した monitoring summary は `report_count=2`、`observations=16669`、`log_loss=0.20143`、`bet_records=1`。まだ資金投入判断ではなく、日次で candidate を回し続けて calibration drift、CLV、segment 別の悪化を監視する段階。
 
+## Market Calibration Study
+
+追加モデル第一弾として、market-implied probability に Platt-style calibration をかける walk-forward study を追加した。
+
+- Artifact: `artifacts/market_calibration/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/market_calibration_report.json`
+- Input: Phase 4 meta dataset
+- Market column: `pred__market_implied_probability__market_implied_oof_v1`
+- Holdout folds: `202601` から `202605`
+- Observations: `16173`
+
+| Method | Log loss | Brier | ECE |
+| --- | ---: | ---: | ---: |
+| Market baseline | 0.201385 | 0.056434 | 0.003510 |
+| Market calibrated | 0.201386 | 0.056432 | 0.002798 |
+
+Calibration は ECE を改善したが、log loss は `0.000001` だけ悪化した。採用判定は `keep_market_baseline`。これは悪い結果ではなく、market がすでにかなり well-calibrated であることを確認した形。次に calibration を使うなら、全体一律ではなく odds band / venue / surface / field size など segment-specific にする価値がある。
+
 ## 馬連 Simulation
 
 `0B42` のローカル smoke data と `HR` official payout を使い、馬連 favorite strategy の settlement を確認した。
@@ -306,5 +323,6 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - Phase 4: 完了。OOF、meta dataset、logistic meta learner、convex blend search、walk-forward/segment study を生成/評価済み。convex blend は market を小幅に上回り、paper trading 候補。
 - Phase 5: 完了。model registry、paper trading replay、CLV/backtest artifacts を生成済み。
 - Phase 6: 完了。日次 paper trading run と monitoring summary を実装し、実データ smoke を通過。次は日次蓄積と追加 specialist model の投入。
+- Phase 7: 進行中。Data catalog、identity map、market calibration study、Windows automated fetch wrapper を追加。
 
 当面は収益最大化より、calibration、CLV、odds band / venue / surface / distance 別の歪み検出を優先する。

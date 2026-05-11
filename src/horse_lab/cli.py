@@ -67,8 +67,10 @@ from horse_lab.stacking import (
     build_meta_dataset_from_csv,
     meta_dataset_build_result_to_dict,
     meta_learner_training_result_to_dict,
+    market_calibration_study_result_to_dict,
     phase4_study_result_to_dict,
     run_phase4_study_from_csv,
+    run_market_calibration_study_from_csv,
     search_convex_blend_from_csv,
     train_logistic_meta_learner_from_csv,
 )
@@ -455,6 +457,24 @@ def build_parser() -> argparse.ArgumentParser:
     blend_parser.add_argument("--model-version", default="convex-blend-v1")
     blend_parser.add_argument("--grid-step", type=float, default=0.05)
     blend_parser.set_defaults(handler=_handle_stacking_search_blend)
+
+    calibration_parser = subparsers.add_parser(
+        "stacking-market-calibration-study",
+        help="Run a walk-forward calibration study for the market-implied column.",
+    )
+    calibration_parser.add_argument("meta_features_csv", type=Path)
+    calibration_parser.add_argument("artifact_dir", type=Path)
+    calibration_parser.add_argument(
+        "--market-column",
+        default=None,
+        help="Prediction column to calibrate. Defaults to inferred market column.",
+    )
+    calibration_parser.add_argument("--min-train-folds", type=int, default=3)
+    calibration_parser.add_argument("--model-version", default="market-calibration-v1")
+    calibration_parser.add_argument("--learning-rate", type=float, default=0.05)
+    calibration_parser.add_argument("--max-iterations", type=int, default=2000)
+    calibration_parser.add_argument("--l2", type=float, default=1e-3)
+    calibration_parser.set_defaults(handler=_handle_stacking_market_calibration_study)
 
     phase4_parser = subparsers.add_parser(
         "stacking-phase4-study",
@@ -944,6 +964,22 @@ def _handle_stacking_search_blend(args: argparse.Namespace) -> dict[str, object]
         grid_step=args.grid_step,
     )
     return blend_search_result_to_dict(result)
+
+
+def _handle_stacking_market_calibration_study(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    result = run_market_calibration_study_from_csv(
+        args.meta_features_csv,
+        args.artifact_dir,
+        market_column=args.market_column,
+        min_train_folds=args.min_train_folds,
+        model_version=args.model_version,
+        learning_rate=args.learning_rate,
+        max_iterations=args.max_iterations,
+        l2=args.l2,
+    )
+    return market_calibration_study_result_to_dict(result)
 
 
 def _handle_stacking_phase4_study(args: argparse.Namespace) -> dict[str, object]:

@@ -10,6 +10,7 @@ Horse Lab は、日本競馬の予想を単一モデルではなく複数の専�
    - JRA-VAN raw dump を immutable に保持し、staging CSV、replay dataset、model artifact を versioned にする。
    - race、entry、result、odds snapshot/time series、payout/pool、horse/person metadata を runner 単位で join できる形に正規化する。
    - すべての学習特徴量は `as_of` と `feature_version` を持つ。
+   - `runner_id` は race-local ID、`horse_id` は同一馬を日付横断で結ぶ ID。processed replay には `entries.csv` を出し、`runner_id -> horse_id` を追跡する。
 
 2. **Feature layer**
    - runner-level feature を基本粒度にする。
@@ -152,6 +153,17 @@ Phase 6 は、承認済み registry candidate を日次運用に近い形で再�
 
 追加モデルの計画は `docs/model_roadmap.md` に分離した。次の主戦場は「market を壊さずに残差を拾う model」と「馬連/三連系の pair/tuple probability model」。
 
+### Phase 7: Data / Model Expansion 進行中
+
+Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を並行して進める段階。
+
+- `docs/data_catalog.md` を追加し、source、feature provenance、identity、data gaps を整理。
+- replay dataset に `entries.csv` を追加。これにより processed 側でも `runner_id -> horse_id` を復元できる。
+- `jravan-data-qa` に `dataset_manifest`、feature provenance、identity coverage を追加。
+- `stacking-market-calibration-study` を追加。market-implied probability に Platt-style calibration をかけ、walk-forward で market baseline と比較する。
+- 初回 study では ECE は改善したが log loss はほぼ同等で微悪化したため、採用判断は `keep_market_baseline`。
+- Windows 側に `Invoke-JvLinkAutomatedFetchToS3.ps1` を追加。`RACE` と `0B30/0B41/0B42` を S3-first で取る scheduled job の入口にする。
+
 ## JRA-VAN / S3 運用方針
 
 - Primary source は JRA-VAN Data Lab.。
@@ -163,6 +175,7 @@ Phase 6 は、承認済み registry candidate を日次運用に近い形で再�
 - `HR` 払戻と `H1` 票数は `RACE` raw に含まれるため、settlement と pool 検証は race backfill から復元する。過去の odds movement は realtime 系を保存していない期間は復元できない。
 - Mac 開発環境は必要な run だけを S3 から local `data/raw/` に sync する。
 - `data/raw/`、`data/interim/`、`data/processed/`、`artifacts/` は git 管理しない。
+- Data catalog と identity 方針は `docs/data_catalog.md` を正本にする。
 
 ## 主要 CLI
 
@@ -178,6 +191,7 @@ horse-lab level0-oof data/processed/jravan/<run_id>/replay artifacts/oof/<run_id
 horse-lab stacking-build-meta-dataset artifacts/oof/<run_id>/oof_predictions.csv data/processed/jravan/<run_id>/replay/results.csv artifacts/stacking/<run_id>
 horse-lab stacking-train-meta artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_meta/<run_id>
 horse-lab stacking-search-blend artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_blend/<run_id>
+horse-lab stacking-market-calibration-study artifacts/stacking/<run_id>/meta_features.csv artifacts/market_calibration/<run_id>
 horse-lab stacking-phase4-study artifacts/stacking/<run_id>/meta_features.csv data/processed/jravan/<run_id>/replay/races.csv artifacts/phase4_study/<run_id>
 horse-lab model-registry-register-phase4 artifacts/phase4_study/<run_id>/phase4_study_report.json artifacts/model_registry/<candidate>/model_registry.json
 horse-lab paper-trading-run artifacts/phase4_study/<run_id>/walkforward_predictions.csv data/processed/jravan/<run_id>/replay artifacts/paper_trading/<candidate> --method convex_blend --as-of YYYY-MM-DDTHH:MM:SS

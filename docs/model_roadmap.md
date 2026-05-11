@@ -27,6 +27,12 @@
 - Log loss を悪化させない。
 - Paper trading で CLV が悪化しない。
 
+初回結果:
+
+- 全体一律の Platt-style calibration は ECE を改善したが、log loss は market baseline とほぼ同等で微悪化。
+- 現時点では採用せず、segment-specific calibration の候補として継続。
+- 次の改善方向は odds band、venue、surface、field size を分けた calibration。
+
 ### 2. CatBoost / Categorical Tabular Model
 
 目的: jockey/trainer/venue/grade/surface など categorical interaction を LightGBM より自然に扱う。
@@ -131,6 +137,11 @@
 5. **日次運用**
    - Windows worker は `RACE` と `0B30` を S3 に upload。
    - Mac/Linux 側は S3 pull、ingest、daily-paper-trading-run、monitoring summary を実行。
+
+6. **Identity-aware feature rebuild**
+   - replay dataset に出す `entries.csv` を正本にする。
+   - `horse_id` は直接 feature にせず、OOF horse stats、horse embedding、過去走集約のキーとして使う。
+   - 既存 processed dataset は `entries.csv` 追加後に再 build する。
 
 ## 当面の採用ゲート
 

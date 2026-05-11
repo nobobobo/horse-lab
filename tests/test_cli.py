@@ -373,6 +373,7 @@ def test_jravan_daily_market_replay_cli_runs_local_raw_workflow(
     }
     assert summary["replay_dataset"]["report"]["output_counts"] == {
         "races": 1,
+        "entries": 1,
         "feature_rows": 1,
         "results": 1,
         "odds": 1,

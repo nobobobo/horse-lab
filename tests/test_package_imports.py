@@ -70,15 +70,19 @@ def test_pipeline_imports():
 def test_stacking_imports():
     from horse_lab.stacking import (
         BlendSearchResult,
+        MarketCalibrationStudyResult,
         Phase4StudyResult,
         PredictionRole,
         StoredPrediction,
+        run_market_calibration_study_from_csv,
     )
 
     assert BlendSearchResult.__name__ == "BlendSearchResult"
+    assert MarketCalibrationStudyResult.__name__ == "MarketCalibrationStudyResult"
     assert Phase4StudyResult.__name__ == "Phase4StudyResult"
     assert PredictionRole.OOF.value == "oof"
     assert StoredPrediction.__name__ == "StoredPrediction"
+    assert callable(run_market_calibration_study_from_csv)
 
 
 def test_mlops_imports():

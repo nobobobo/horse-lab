@@ -59,3 +59,29 @@ powershell.exe -ExecutionPolicy Bypass -File C:\horse-lab\scripts\Invoke-JvLinkR
 ```
 
 Use a deterministic `RunId` from the schedule window when replayability matters, for example `0B30_yyyyMMdd_HHmm`.
+
+## Automated daily fetch wrapper
+
+Use `tools/windows/Invoke-JvLinkAutomatedFetchToS3.ps1` as the scheduled command when one job should fetch both accumulated `RACE` and realtime odds. It composes the existing S3-first scripts and writes a local `automated_fetch_manifest.json`.
+
+Example:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File C:\horse-lab\scripts\Invoke-JvLinkAutomatedFetchToS3.ps1 `
+  -StartDate 20260511 `
+  -EndDate 20260511 `
+  -DailyDataSpecs RACE `
+  -RealtimeDataSpecs 0B30,0B41,0B42 `
+  -RaceKeyFile C:\horse-lab\inputs\today_race_keys.txt `
+  -Bucket horse-lab-jravan-244306245597-apne1 `
+  -RunId auto_20260511_pm
+```
+
+Recommended EventBridge/SSM shape:
+
+1. Start the Windows instance 10-15 minutes before collection.
+2. Run the automated wrapper with a deterministic `RunId`.
+3. Upload outputs to S3 through the wrapper scripts.
+4. Stop the instance after the command finishes or after a fixed grace period.
+
+For non-race days or settlement-only runs, pass `-SkipRealtime` and fetch `RACE` only. For intraday odds accumulation windows, pass `-SkipDaily` and run only `0B30/0B41/0B42` with the current race-key file.

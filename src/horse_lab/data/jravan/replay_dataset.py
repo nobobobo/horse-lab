@@ -17,6 +17,7 @@ from horse_lab.data.csv_parsing import (
     read_csv_rows,
 )
 from horse_lab.data.jravan.exporters import (
+    write_entries_csv,
     write_odds_csv,
     write_payouts_csv,
     write_races_csv,
@@ -105,6 +106,7 @@ class ReplayDatasetReport:
     input_odds: int
     input_payouts: int
     races_written: int
+    entries_written: int
     feature_rows_written: int
     results_written: int
     odds_written: int
@@ -278,6 +280,7 @@ def build_replay_dataset_from_staging(
 
     csv_paths = {
         "races": target / "races.csv",
+        "entries": target / "entries.csv",
         "features": target / "features.csv",
         "results": target / "results.csv",
         "odds": target / "odds.csv",
@@ -285,6 +288,7 @@ def build_replay_dataset_from_staging(
         "payouts": target / "payouts.csv",
     }
     write_races_csv(csv_paths["races"], selected_races)
+    write_entries_csv(csv_paths["entries"], selected_entries)
     write_feature_rows_csv(csv_paths["features"], feature_rows)
     write_results_csv(csv_paths["results"], selected_results)
     write_odds_csv(csv_paths["odds"], selected_odds)
@@ -301,6 +305,7 @@ def build_replay_dataset_from_staging(
         input_odds=len(odds),
         input_payouts=len(official_payouts),
         races_written=len(selected_races),
+        entries_written=len(selected_entries),
         feature_rows_written=len(feature_rows),
         results_written=len(selected_results),
         odds_written=len(selected_odds),
@@ -352,6 +357,7 @@ def replay_dataset_report_to_dict(
         },
         "output_counts": {
             "races": report.races_written,
+            "entries": report.entries_written,
             "feature_rows": report.feature_rows_written,
             "results": report.results_written,
             "odds": report.odds_written,
