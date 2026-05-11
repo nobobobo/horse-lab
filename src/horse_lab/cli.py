@@ -47,11 +47,15 @@ from horse_lab.evaluation import PerformanceSummary, ProbabilitySummary
 from horse_lab.mlops import (
     build_phase4_model_registry_from_report,
     model_registry_to_dict,
+    paper_trading_monitoring_summary_result_to_dict,
+    summarize_paper_trading_reports,
 )
 from horse_lab.pipelines import (
+    daily_paper_trading_result_to_dict,
     lightgbm_training_result_to_dict,
     oof_run_result_to_dict,
     paper_trading_result_to_dict,
+    run_daily_paper_trading_from_csv,
     run_level0_oof_from_csv,
     run_lightgbm_ablation_from_csv,
     run_lightgbm_training_from_csv,
@@ -503,6 +507,57 @@ def build_parser() -> argparse.ArgumentParser:
     _add_backtest_options(paper_parser)
     paper_parser.set_defaults(handler=_handle_paper_trading_run)
 
+    daily_paper_parser = subparsers.add_parser(
+        "daily-paper-trading-run",
+        help=(
+            "Generate same-day Level 0 predictions from historical data, blend the "
+            "registered candidate, and replay it as paper trading."
+        ),
+    )
+    daily_paper_parser.add_argument("dataset_dir", type=Path)
+    daily_paper_parser.add_argument("model_registry_path", type=Path)
+    daily_paper_parser.add_argument("artifact_dir", type=Path)
+    daily_paper_parser.add_argument("--start-date", type=_parse_cli_date, required=True)
+    daily_paper_parser.add_argument("--end-date", type=_parse_cli_date, required=True)
+    daily_paper_parser.add_argument("--as-of", type=_parse_cli_datetime, required=True)
+    daily_paper_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+        help="Feature version to read from features.csv.",
+    )
+    daily_paper_parser.add_argument(
+        "--train-end-date",
+        type=_parse_cli_date,
+        default=None,
+        help="Latest race date allowed for training. Defaults to day before start-date.",
+    )
+    daily_paper_parser.add_argument(
+        "--candidate-method",
+        default=None,
+        help="Override the candidate method stored in the registry.",
+    )
+    daily_paper_parser.add_argument(
+        "--use-compact-odds",
+        action="store_true",
+        help="Use odds.csv instead of odds_timeseries.csv when both exist.",
+    )
+    daily_paper_parser.add_argument(
+        "--allow-unapproved-registry",
+        action="store_true",
+        help="Run even if the registry candidate did not clear the paper gate.",
+    )
+    daily_paper_parser.add_argument("--initial-bankroll-jpy", type=int, default=100_000)
+    _add_backtest_options(daily_paper_parser)
+    daily_paper_parser.set_defaults(handler=_handle_daily_paper_trading_run)
+
+    monitoring_parser = subparsers.add_parser(
+        "paper-trading-monitoring-summary",
+        help="Aggregate Phase 5/6 paper-trading reports into one monitoring summary.",
+    )
+    monitoring_parser.add_argument("output_path", type=Path)
+    monitoring_parser.add_argument("report_path", nargs="+", type=Path)
+    monitoring_parser.set_defaults(handler=_handle_paper_trading_monitoring_summary)
+
     daily_replay_parser = subparsers.add_parser(
         "jravan-daily-market-replay",
         help="Run the local daily JRA-VAN raw-to-market-replay workflow.",
@@ -930,6 +985,34 @@ def _handle_paper_trading_run(args: argparse.Namespace) -> dict[str, object]:
         use_odds_timeseries=not args.use_compact_odds,
     )
     return paper_trading_result_to_dict(result)
+
+
+def _handle_daily_paper_trading_run(args: argparse.Namespace) -> dict[str, object]:
+    result = run_daily_paper_trading_from_csv(
+        args.dataset_dir,
+        args.model_registry_path,
+        args.artifact_dir,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        as_of=args.as_of,
+        feature_version=args.feature_version,
+        train_end_date=args.train_end_date,
+        candidate_method=args.candidate_method,
+        backtest_config=_backtest_config_from_args(args),
+        use_odds_timeseries=not args.use_compact_odds,
+        require_registry_approval=not args.allow_unapproved_registry,
+    )
+    return daily_paper_trading_result_to_dict(result)
+
+
+def _handle_paper_trading_monitoring_summary(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    result = summarize_paper_trading_reports(
+        report_paths=args.report_path,
+        output_path=args.output_path,
+    )
+    return paper_trading_monitoring_summary_result_to_dict(result)
 
 
 def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, object]:

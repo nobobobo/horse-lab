@@ -198,6 +198,31 @@ Conservative replay は minimum edge 2%、closing odds の条件で実行した�
 
 bet が 1 件しか出ないのは異常ではない。candidate は market に非常に近い restrained blend なので、同じ closing odds に対して大きな positive edge はほぼ出ない。Phase 5 の主目的は収益確認ではなく、daily pipeline、artifact、監視指標、採用ゲートの整備。実運用判断には、締切前 snapshot での live-like prediction と CLV 監視が必要。
 
+## Phase 6 Daily Paper Trading
+
+Phase 6 では、registry candidate を日次運用に近い形で再学習し、当日分を paper trading replay する `daily-paper-trading-run` を追加した。
+
+- Daily artifact: `artifacts/daily_paper_trading/phase6_20260503/daily_paper_trading_report.json`
+- Monitoring artifact: `artifacts/paper_trading_monitoring/phase6_summary.json`
+- Target date: 2026-05-03
+- Train end: 2026-05-02
+- Target races: 35
+- Target runners: 496
+- Serving weights: LightGBM full `0.05`, LightGBM no-market `0.00`, market `0.95`
+
+Daily result:
+
+| Metric | Value |
+| --- | ---: |
+| Log loss | 0.20367 |
+| Brier | 0.05585 |
+| ECE | 0.01272 |
+| Bet records | 0 |
+| Positive edge decisions | 0 |
+| Mean edge | -0.21054 |
+
+Phase 5 + Phase 6 を aggregate した monitoring summary は `report_count=2`、`observations=16669`、`log_loss=0.20143`、`bet_records=1`。まだ資金投入判断ではなく、日次で candidate を回し続けて calibration drift、CLV、segment 別の悪化を監視する段階。
+
 ## 馬連 Simulation
 
 `0B42` のローカル smoke data と `HR` official payout を使い、馬連 favorite strategy の settlement を確認した。
@@ -279,6 +304,7 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - Phase 3.6: 完了。Data QA と馬連 settlement simulation が通る。
 - Phase 3.7: 完了。OOF prediction store、`level0-oof`、meta dataset builder が通る。
 - Phase 4: 完了。OOF、meta dataset、logistic meta learner、convex blend search、walk-forward/segment study を生成/評価済み。convex blend は market を小幅に上回り、paper trading 候補。
-- Phase 5: 完了。model registry、paper trading replay、CLV/backtest artifacts を生成済み。次は live-like daily inference と週次 monitoring。
+- Phase 5: 完了。model registry、paper trading replay、CLV/backtest artifacts を生成済み。
+- Phase 6: 完了。日次 paper trading run と monitoring summary を実装し、実データ smoke を通過。次は日次蓄積と追加 specialist model の投入。
 
 当面は収益最大化より、calibration、CLV、odds band / venue / surface / distance 別の歪み検出を優先する。

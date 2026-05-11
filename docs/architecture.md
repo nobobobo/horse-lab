@@ -138,6 +138,20 @@ Phase 5 は、実賭け前の paper trading gate と model registry を実装済
 
 Phase 5 の conservative paper trading replay では、minimum edge 2% の条件で bet は 1 件のみ。これは convex blend が market に非常に近く、positive edge が薄いことを示す。したがって Phase 5 の結論は「live bet へ進む」ではなく、「paper trading candidate として監視を始める」。次は締切前 odds snapshot を使う live-like daily inference を回し、CLV と calibration を週次で見る。
 
+### Phase 6: Daily Paper Trading / Monitoring 完了
+
+Phase 6 は、承認済み registry candidate を日次運用に近い形で再学習・推論・紙トレードする足場。
+
+- `daily-paper-trading-run` を追加。指定日の前日までを training window とし、当日 races に対して Level 0 を生成し、registry の serving weights で candidate prediction を作る。
+- 生成物は `level0_predictions.csv`、`candidate_predictions.csv`、`daily_paper_trading_report.json`、および通常の `paper/` artifacts。
+- `paper-trading-monitoring-summary` を追加。Phase 5 の paper report と Phase 6 の daily report をまとめ、probability/backtest/decision/CLV を aggregate する。
+- 実データ smoke: `2026-05-03` の 35 races / 496 runners で daily run が成功。
+- Monitoring artifact: `artifacts/paper_trading_monitoring/phase6_summary.json`
+
+2026-05-03 の daily paper trading は market に近い restrained blend のため、minimum edge 2% では bet 0 件。これは Phase 5 と整合的で、直ちに live bet するシグナルではない。今後は毎開催日の paper trading を積み、CLV、calibration drift、segment drift を週次で見る。
+
+追加モデルの計画は `docs/model_roadmap.md` に分離した。次の主戦場は「market を壊さずに残差を拾う model」と「馬連/三連系の pair/tuple probability model」。
+
 ## JRA-VAN / S3 運用方針
 
 - Primary source は JRA-VAN Data Lab.。
@@ -167,6 +181,8 @@ horse-lab stacking-search-blend artifacts/stacking/<run_id>/meta_features.csv ar
 horse-lab stacking-phase4-study artifacts/stacking/<run_id>/meta_features.csv data/processed/jravan/<run_id>/replay/races.csv artifacts/phase4_study/<run_id>
 horse-lab model-registry-register-phase4 artifacts/phase4_study/<run_id>/phase4_study_report.json artifacts/model_registry/<candidate>/model_registry.json
 horse-lab paper-trading-run artifacts/phase4_study/<run_id>/walkforward_predictions.csv data/processed/jravan/<run_id>/replay artifacts/paper_trading/<candidate> --method convex_blend --as-of YYYY-MM-DDTHH:MM:SS
+horse-lab daily-paper-trading-run data/processed/jravan/<run_id>/replay artifacts/model_registry/<candidate>/model_registry.json artifacts/daily_paper_trading/<run_id> --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
+horse-lab paper-trading-monitoring-summary artifacts/paper_trading_monitoring/<run_id>/summary.json artifacts/paper_trading/<candidate>/paper_trading_report.json artifacts/daily_paper_trading/<run_id>/daily_paper_trading_report.json
 horse-lab jravan-data-qa data/processed/jravan/<run_id>/replay artifacts/data_quality/<run_id>/report.json
 horse-lab jravan-build-quinella-replay-dataset data/interim/jravan/<o2_run_id> data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 horse-lab jravan-build-quinella-replay-dataset-raw data/raw/jravan data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --pattern 0B42_jvgets.txt

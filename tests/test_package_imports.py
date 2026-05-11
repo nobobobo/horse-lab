@@ -51,14 +51,18 @@ def test_storage_and_feature_protocols_import():
 
 def test_pipeline_imports():
     from horse_lab.pipelines import (
+        DailyPaperTradingResult,
         PaperTradingResult,
         ReplayResult,
+        run_daily_paper_trading_from_csv,
         run_market_replay,
         run_paper_trading_from_csv,
     )
 
+    assert DailyPaperTradingResult.__name__ == "DailyPaperTradingResult"
     assert PaperTradingResult.__name__ == "PaperTradingResult"
     assert ReplayResult.__name__ == "ReplayResult"
+    assert callable(run_daily_paper_trading_from_csv)
     assert callable(run_market_replay)
     assert callable(run_paper_trading_from_csv)
 
@@ -78,9 +82,13 @@ def test_stacking_imports():
 
 
 def test_mlops_imports():
-    from horse_lab.mlops import build_phase4_model_registry_from_report
+    from horse_lab.mlops import (
+        build_phase4_model_registry_from_report,
+        summarize_paper_trading_reports,
+    )
 
     assert callable(build_phase4_model_registry_from_report)
+    assert callable(summarize_paper_trading_reports)
 
 
 def test_jravan_ingestion_helpers_import():
