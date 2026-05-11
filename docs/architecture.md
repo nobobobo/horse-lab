@@ -127,10 +127,16 @@ Walk-forward 結果は、`202510` から `202512` を最小 meta train folds と
 
 Convex blend が market をわずかに上回ったため、Phase 4 の候補としては `promote_ensemble_candidate`。ただし改善幅は log loss で `0.000026` と小さいため、即資金投入ではなく paper trading gate へ進める。実運用では market を主軸に、LightGBM full を 0-5% 程度混ぜる restrained blend を候補にする。no-market model は単体では弱く、blend weight も 0 になったため、現時点では診断用に留める。
 
-### Phase 5: 自動化
+### Phase 5: Paper Trading / 自動化 完了
 
-- S3 raw pull から ingest、replay build、feature generation、training、inference、paper trading report までを DAG 化する。
-- 本番前に paper trading 期間を置き、ROI より calibration と CLV を優先監視する。
+Phase 5 は、実賭け前の paper trading gate と model registry を実装済み。
+
+- `model-registry-register-phase4` で Phase 4 の convex blend candidate を registry JSON に登録する。
+- `paper-trading-run` で walk-forward predictions を paper trading replay し、`paper_predictions.csv`、`paper_trading_report.json`、`clv_report.csv`、`backtest/bet_decisions.csv` を出力する。
+- Registry artifact: `artifacts/model_registry/phase5_convex_blend_candidate/model_registry.json`
+- Paper trading artifact: `artifacts/paper_trading/phase5_convex_blend_202601_202605/paper_trading_report.json`
+
+Phase 5 の conservative paper trading replay では、minimum edge 2% の条件で bet は 1 件のみ。これは convex blend が market に非常に近く、positive edge が薄いことを示す。したがって Phase 5 の結論は「live bet へ進む」ではなく、「paper trading candidate として監視を始める」。次は締切前 odds snapshot を使う live-like daily inference を回し、CLV と calibration を週次で見る。
 
 ## JRA-VAN / S3 運用方針
 
@@ -159,6 +165,8 @@ horse-lab stacking-build-meta-dataset artifacts/oof/<run_id>/oof_predictions.csv
 horse-lab stacking-train-meta artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_meta/<run_id>
 horse-lab stacking-search-blend artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_blend/<run_id>
 horse-lab stacking-phase4-study artifacts/stacking/<run_id>/meta_features.csv data/processed/jravan/<run_id>/replay/races.csv artifacts/phase4_study/<run_id>
+horse-lab model-registry-register-phase4 artifacts/phase4_study/<run_id>/phase4_study_report.json artifacts/model_registry/<candidate>/model_registry.json
+horse-lab paper-trading-run artifacts/phase4_study/<run_id>/walkforward_predictions.csv data/processed/jravan/<run_id>/replay artifacts/paper_trading/<candidate> --method convex_blend --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab jravan-data-qa data/processed/jravan/<run_id>/replay artifacts/data_quality/<run_id>/report.json
 horse-lab jravan-build-quinella-replay-dataset data/interim/jravan/<o2_run_id> data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 horse-lab jravan-build-quinella-replay-dataset-raw data/raw/jravan data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --pattern 0B42_jvgets.txt

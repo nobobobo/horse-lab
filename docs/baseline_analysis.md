@@ -174,6 +174,30 @@ Fold 別の blend weight:
 
 Segment study では、blend は `Niigata`、`Chukyo`、`1201_1600m`、`15頭以上`、market probability `0.05-0.10` などで market より良かった。一方で `10頭以下`、`2000m超`、障害、`Hanshin` では悪化した。現時点では segment-specific model を採用するほど改善幅は大きくないため、Phase 5 では全体 restrained blend を paper trading で監視し、segment は alert / diagnostics として使う。
 
+## Phase 5 Paper Trading
+
+Phase 4 の `convex_blend` を paper trading candidate として model registry に登録し、walk-forward predictions を paper trading replay に流した。
+
+- Registry: `artifacts/model_registry/phase5_convex_blend_candidate/model_registry.json`
+- Conservative paper trading: `artifacts/paper_trading/phase5_convex_blend_202601_202605/paper_trading_report.json`
+- Diagnostic paper trading: `artifacts/paper_trading/phase5_convex_blend_202601_202605_diagnostic_min_edge_0/paper_trading_report.json`
+- Candidate stage: `paper_trading_candidate`
+- Serving weights: LightGBM full `0.05`, LightGBM no-market `0.00`, market `0.95`
+
+Conservative replay は minimum edge 2%、closing odds の条件で実行した。
+
+| Metric | Value |
+| --- | ---: |
+| Races | 1138 |
+| Predictions | 16173 |
+| Bet records | 1 |
+| Positive edge decisions | 17 |
+| Stake | 100 JPY |
+| Profit | -100 JPY |
+| ROI | -100.0% |
+
+bet が 1 件しか出ないのは異常ではない。candidate は market に非常に近い restrained blend なので、同じ closing odds に対して大きな positive edge はほぼ出ない。Phase 5 の主目的は収益確認ではなく、daily pipeline、artifact、監視指標、採用ゲートの整備。実運用判断には、締切前 snapshot での live-like prediction と CLV 監視が必要。
+
 ## 馬連 Simulation
 
 `0B42` のローカル smoke data と `HR` official payout を使い、馬連 favorite strategy の settlement を確認した。
@@ -255,5 +279,6 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - Phase 3.6: 完了。Data QA と馬連 settlement simulation が通る。
 - Phase 3.7: 完了。OOF prediction store、`level0-oof`、meta dataset builder が通る。
 - Phase 4: 完了。OOF、meta dataset、logistic meta learner、convex blend search、walk-forward/segment study を生成/評価済み。convex blend は market を小幅に上回り、paper trading 候補。
+- Phase 5: 完了。model registry、paper trading replay、CLV/backtest artifacts を生成済み。次は live-like daily inference と週次 monitoring。
 
 当面は収益最大化より、calibration、CLV、odds band / venue / surface / distance 別の歪み検出を優先する。

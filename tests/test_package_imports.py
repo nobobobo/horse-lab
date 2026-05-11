@@ -50,17 +50,37 @@ def test_storage_and_feature_protocols_import():
 
 
 def test_pipeline_imports():
-    from horse_lab.pipelines import ReplayResult, run_market_replay
+    from horse_lab.pipelines import (
+        PaperTradingResult,
+        ReplayResult,
+        run_market_replay,
+        run_paper_trading_from_csv,
+    )
 
+    assert PaperTradingResult.__name__ == "PaperTradingResult"
     assert ReplayResult.__name__ == "ReplayResult"
     assert callable(run_market_replay)
+    assert callable(run_paper_trading_from_csv)
 
 
 def test_stacking_imports():
-    from horse_lab.stacking import PredictionRole, StoredPrediction
+    from horse_lab.stacking import (
+        BlendSearchResult,
+        Phase4StudyResult,
+        PredictionRole,
+        StoredPrediction,
+    )
 
+    assert BlendSearchResult.__name__ == "BlendSearchResult"
+    assert Phase4StudyResult.__name__ == "Phase4StudyResult"
     assert PredictionRole.OOF.value == "oof"
     assert StoredPrediction.__name__ == "StoredPrediction"
+
+
+def test_mlops_imports():
+    from horse_lab.mlops import build_phase4_model_registry_from_report
+
+    assert callable(build_phase4_model_registry_from_report)
 
 
 def test_jravan_ingestion_helpers_import():

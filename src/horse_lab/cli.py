@@ -44,13 +44,19 @@ from horse_lab.data.jravan import (
 )
 from horse_lab.data.jravan.raw import JV_DATA_ENCODING
 from horse_lab.evaluation import PerformanceSummary, ProbabilitySummary
+from horse_lab.mlops import (
+    build_phase4_model_registry_from_report,
+    model_registry_to_dict,
+)
 from horse_lab.pipelines import (
     lightgbm_training_result_to_dict,
     oof_run_result_to_dict,
+    paper_trading_result_to_dict,
     run_level0_oof_from_csv,
     run_lightgbm_ablation_from_csv,
     run_lightgbm_training_from_csv,
     run_market_replay,
+    run_paper_trading_from_csv,
 )
 from horse_lab.stacking import (
     blend_search_result_to_dict,
@@ -460,6 +466,43 @@ def build_parser() -> argparse.ArgumentParser:
     phase4_parser.add_argument("--logistic-l2", type=float, default=1e-3)
     phase4_parser.set_defaults(handler=_handle_stacking_phase4_study)
 
+    registry_parser = subparsers.add_parser(
+        "model-registry-register-phase4",
+        help="Register a Phase 4 candidate model for Phase 5 paper trading.",
+    )
+    registry_parser.add_argument("phase4_report_path", type=Path)
+    registry_parser.add_argument("output_path", type=Path)
+    registry_parser.add_argument("--candidate-method", default="convex_blend")
+    registry_parser.add_argument(
+        "--model-version",
+        default="convex-blend-phase5-v1",
+    )
+    registry_parser.add_argument(
+        "--minimum-log-loss-improvement",
+        type=float,
+        default=0.0,
+    )
+    registry_parser.set_defaults(handler=_handle_model_registry_register_phase4)
+
+    paper_parser = subparsers.add_parser(
+        "paper-trading-run",
+        help="Replay a registered/candidate prediction method as paper trading.",
+    )
+    paper_parser.add_argument("predictions_csv", type=Path)
+    paper_parser.add_argument("dataset_dir", type=Path)
+    paper_parser.add_argument("artifact_dir", type=Path)
+    paper_parser.add_argument("--method", required=True)
+    paper_parser.add_argument("--as-of", type=_parse_cli_datetime, required=True)
+    paper_parser.add_argument("--model-version", default="paper-trading-v1")
+    paper_parser.add_argument(
+        "--use-compact-odds",
+        action="store_true",
+        help="Use odds.csv instead of odds_timeseries.csv when both exist.",
+    )
+    paper_parser.add_argument("--initial-bankroll-jpy", type=int, default=100_000)
+    _add_backtest_options(paper_parser)
+    paper_parser.set_defaults(handler=_handle_paper_trading_run)
+
     daily_replay_parser = subparsers.add_parser(
         "jravan-daily-market-replay",
         help="Run the local daily JRA-VAN raw-to-market-replay workflow.",
@@ -860,6 +903,33 @@ def _handle_stacking_phase4_study(args: argparse.Namespace) -> dict[str, object]
         logistic_l2=args.logistic_l2,
     )
     return phase4_study_result_to_dict(result)
+
+
+def _handle_model_registry_register_phase4(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    result = build_phase4_model_registry_from_report(
+        args.phase4_report_path,
+        args.output_path,
+        candidate_method=args.candidate_method,
+        model_version=args.model_version,
+        minimum_log_loss_improvement=args.minimum_log_loss_improvement,
+    )
+    return model_registry_to_dict(result)
+
+
+def _handle_paper_trading_run(args: argparse.Namespace) -> dict[str, object]:
+    result = run_paper_trading_from_csv(
+        args.predictions_csv,
+        args.dataset_dir,
+        args.artifact_dir,
+        method=args.method,
+        as_of=args.as_of,
+        model_version=args.model_version,
+        backtest_config=_backtest_config_from_args(args),
+        use_odds_timeseries=not args.use_compact_odds,
+    )
+    return paper_trading_result_to_dict(result)
 
 
 def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, object]:
