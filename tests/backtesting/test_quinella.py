@@ -127,6 +127,37 @@ def test_quinella_positive_edge_strategy_can_make_zero_bets(tmp_path):
     assert result.summary["final_bankroll_jpy"] == 100_000
 
 
+def test_quinella_simulation_can_skip_races_without_official_payout(tmp_path):
+    odds_csv = tmp_path / "odds.csv"
+    payouts_csv = tmp_path / "payouts.csv"
+    artifact_dir = tmp_path / "artifacts"
+    _write_csv(odds_csv, _odds_rows())
+    _write_csv(
+        payouts_csv,
+        [
+            {
+                "race_id": "2026050805010101",
+                "runner_id": "2026050805010101-01_02",
+                "bet_type": "quinella",
+                "payout_jpy_per_100": "800",
+            }
+        ],
+    )
+
+    result = run_quinella_simulation_from_csv(
+        odds_csv,
+        payouts_csv,
+        artifact_dir,
+        start_date=dt.date(2026, 5, 8),
+        end_date=dt.date(2026, 5, 8),
+        config=QuinellaSimulationConfig(require_payout_for_race=True),
+    )
+
+    assert result.summary["races_considered"] == 1
+    assert result.summary["bets"] == 1
+    assert result.summary["wins"] == 1
+
+
 def test_quinella_sim_cli_writes_artifacts(tmp_path, capsys):
     odds_csv = tmp_path / "odds.csv"
     payouts_csv = tmp_path / "payouts.csv"

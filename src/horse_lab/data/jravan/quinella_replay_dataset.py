@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Mapping
+from typing import Iterable, Mapping, Sequence
 
 from horse_lab.data.csv_parsing import parse_odds_quote_row
 from horse_lab.data.jravan.exporters import (
@@ -16,6 +16,8 @@ from horse_lab.data.jravan.exporters import (
     odds_quote_to_csv_row,
     write_odds_csv,
 )
+from horse_lab.data.jravan.mappers import map_o2_record_to_odds_quotes
+from horse_lab.data.jravan.raw import JV_DATA_ENCODING, read_jvdata_records
 from horse_lab.schemas import BetType, OddsQuote
 
 
@@ -32,6 +34,8 @@ class QuinellaReplayDatasetReport:
     odds_written: int
     odds_timeseries_written: int
     payouts_written: int
+    input_raw_files: int = 0
+    input_records: int = 0
 
 
 @dataclass(frozen=True)
@@ -95,6 +99,74 @@ def build_quinella_replay_dataset_from_staging(
     )
 
 
+def build_quinella_replay_dataset_from_raw(
+    raw_dir: Path | str,
+    payouts_csv_path: Path | str,
+    output_dir: Path | str,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    pattern: str = "0B42_jvgets.txt",
+    recursive: bool = True,
+    encoding: str = JV_DATA_ENCODING,
+    write_timeseries: bool = False,
+) -> QuinellaReplayDatasetExport:
+    """Create a compact pair-level replay dataset directly from O2 raw files."""
+
+    raw_paths = tuple(
+        _iter_raw_dump_paths(Path(raw_dir), pattern=pattern, recursive=recursive)
+    )
+    if not raw_paths:
+        raise ValueError(f"No O2 raw files found in {raw_dir} with pattern {pattern!r}")
+
+    payout_source = Path(payouts_csv_path)
+    target = Path(output_dir)
+    csv_paths = {
+        "odds": target / "odds.csv",
+        "odds_timeseries": target / "odds_timeseries.csv",
+        "payouts": target / "payouts.csv",
+    }
+    latest_odds, input_records, input_odds, odds_timeseries_written = (
+        _write_raw_timeseries_and_latest(
+            raw_paths,
+            csv_paths["odds_timeseries"],
+            start_date=start_date,
+            end_date=end_date,
+            encoding=encoding,
+            write_timeseries=write_timeseries,
+        )
+    )
+    race_ids = {str(quote.race_id) for quote in latest_odds}
+    input_payouts, payouts_written = _write_selected_payouts(
+        payout_source,
+        csv_paths["payouts"],
+        race_ids=race_ids,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    write_odds_csv(csv_paths["odds"], latest_odds)
+
+    report = QuinellaReplayDatasetReport(
+        start_date=start_date,
+        end_date=end_date,
+        input_odds=input_odds,
+        input_payouts=input_payouts,
+        races_written=len(race_ids),
+        odds_written=len(latest_odds),
+        odds_timeseries_written=odds_timeseries_written,
+        payouts_written=payouts_written,
+        input_raw_files=len(raw_paths),
+        input_records=input_records,
+    )
+    report_path = target / QUINELLA_REPLAY_REPORT_FILENAME
+    _write_report(report_path, report)
+    return QuinellaReplayDatasetExport(
+        csv_paths=csv_paths,
+        report_path=report_path,
+        report=report,
+    )
+
+
 def quinella_replay_dataset_report_to_dict(
     report: QuinellaReplayDatasetReport,
 ) -> dict[str, object]:
@@ -108,6 +180,8 @@ def quinella_replay_dataset_report_to_dict(
         "input_counts": {
             "odds": report.input_odds,
             "payouts": report.input_payouts,
+            "raw_files": report.input_raw_files,
+            "records": report.input_records,
         },
         "output_counts": {
             "races": report.races_written,
@@ -162,6 +236,60 @@ def _write_timeseries_and_latest(
                 ),
             )
         ),
+        input_odds,
+        written,
+    )
+
+
+def _write_raw_timeseries_and_latest(
+    raw_paths: Sequence[Path],
+    destination: Path,
+    *,
+    start_date: date | None,
+    end_date: date | None,
+    encoding: str,
+    write_timeseries: bool,
+) -> tuple[tuple[OddsQuote, ...], int, int, int]:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    latest: dict[tuple[str, str], OddsQuote] = {}
+    input_records = 0
+    input_odds = 0
+    written = 0
+    with destination.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ODDS_CSV_FIELDS)
+        writer.writeheader()
+        for raw_path in raw_paths:
+            for record in read_jvdata_records(raw_path, encoding=encoding):
+                if record.record_type != "O2":
+                    continue
+                input_records += 1
+                for quote in map_o2_record_to_odds_quotes(record):
+                    if not _is_in_date_window(
+                        str(quote.race_id),
+                        start_date=start_date,
+                        end_date=end_date,
+                    ):
+                        continue
+                    input_odds += 1
+                    if write_timeseries:
+                        writer.writerow(odds_quote_to_csv_row(quote))
+                        written += 1
+                    key = (str(quote.race_id), str(quote.runner_id))
+                    previous = latest.get(key)
+                    if previous is None or quote.captured_at > previous.captured_at:
+                        latest[key] = quote
+    return (
+        tuple(
+            sorted(
+                latest.values(),
+                key=lambda quote: (
+                    str(quote.race_id),
+                    str(quote.runner_id),
+                    quote.captured_at,
+                ),
+            )
+        ),
+        input_records,
         input_odds,
         written,
     )
@@ -231,6 +359,16 @@ def _race_date_from_id(race_id: str) -> date:
         int(race_id[4:6]),
         int(race_id[6:8]),
     )
+
+
+def _iter_raw_dump_paths(
+    raw_dir: Path,
+    *,
+    pattern: str,
+    recursive: bool,
+) -> Iterable[Path]:
+    iterator = raw_dir.rglob(pattern) if recursive else raw_dir.glob(pattern)
+    yield from sorted(path for path in iterator if path.is_file())
 
 
 def _write_report(path: Path, report: QuinellaReplayDatasetReport) -> None:

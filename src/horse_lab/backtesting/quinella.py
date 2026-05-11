@@ -25,6 +25,7 @@ class QuinellaSimulationConfig:
     strategy: QuinellaStrategy | str = QuinellaStrategy.FAVORITE
     minimum_edge: float = 0.0
     max_bets_per_race: int = 1
+    require_payout_for_race: bool = False
 
     def __post_init__(self) -> None:
         if self.initial_bankroll_jpy <= 0:
@@ -61,10 +62,15 @@ def run_quinella_simulation_from_csv(
         end_date=end_date,
     )
     payouts_by_key = _official_quinella_payouts(Path(payouts_csv_path))
+    payout_race_ids = {race_id for race_id, _runner_id in payouts_by_key}
 
     bankroll = config.initial_bankroll_jpy
     decisions: list[dict[str, object]] = []
+    races_considered = 0
     for race_id in sorted(odds_by_race):
+        if config.require_payout_for_race and race_id not in payout_race_ids:
+            continue
+        races_considered += 1
         race_quotes = odds_by_race[race_id]
         candidates = _rank_candidates(race_quotes, config=config)
         for quote in candidates[: config.max_bets_per_race]:
@@ -102,7 +108,7 @@ def run_quinella_simulation_from_csv(
         decisions,
         initial_bankroll_jpy=config.initial_bankroll_jpy,
         final_bankroll_jpy=bankroll,
-        races_considered=len(odds_by_race),
+        races_considered=races_considered,
     )
     artifact_path = Path(artifact_dir)
     summary_path = artifact_path / "quinella_simulation_summary.json"
@@ -278,6 +284,7 @@ def _config_to_dict(config: QuinellaSimulationConfig) -> dict[str, object]:
         "strategy": config.strategy.value,
         "minimum_edge": config.minimum_edge,
         "max_bets_per_race": config.max_bets_per_race,
+        "require_payout_for_race": config.require_payout_for_race,
     }
 
 

@@ -31,6 +31,7 @@ from horse_lab.data.jravan import (
     DEFAULT_JRAVAN_S3_RAW_PREFIX,
     DEFAULT_REPLAY_FEATURE_VERSION,
     build_replay_dataset_from_staging,
+    build_quinella_replay_dataset_from_raw,
     build_quinella_replay_dataset_from_staging,
     build_jravan_s3_raw_sync_plan,
     ingest_jvdata_directory_to_staging,
@@ -169,6 +170,30 @@ def build_parser() -> argparse.ArgumentParser:
         handler=_handle_jravan_build_quinella_replay_dataset
     )
 
+    quinella_raw_dataset_parser = subparsers.add_parser(
+        "jravan-build-quinella-replay-dataset-raw",
+        help="Build a compact quinella replay dataset directly from O2 raw files.",
+    )
+    quinella_raw_dataset_parser.add_argument("raw_dir", type=Path)
+    quinella_raw_dataset_parser.add_argument("payouts_csv", type=Path)
+    quinella_raw_dataset_parser.add_argument("output_dir", type=Path)
+    quinella_raw_dataset_parser.add_argument("--start-date", type=_parse_cli_date)
+    quinella_raw_dataset_parser.add_argument("--end-date", type=_parse_cli_date)
+    quinella_raw_dataset_parser.add_argument("--pattern", default="0B42_jvgets.txt")
+    quinella_raw_dataset_parser.add_argument(
+        "--no-recursive",
+        action="store_true",
+    )
+    quinella_raw_dataset_parser.add_argument("--encoding", default=JV_DATA_ENCODING)
+    quinella_raw_dataset_parser.add_argument(
+        "--write-timeseries",
+        action="store_true",
+        help="Also materialize full O2 odds_timeseries.csv. Omit for compact eval.",
+    )
+    quinella_raw_dataset_parser.set_defaults(
+        handler=_handle_jravan_build_quinella_replay_dataset_raw
+    )
+
     data_qa_parser = subparsers.add_parser(
         "jravan-data-qa",
         help="Build a coverage and integrity report for a replay dataset.",
@@ -223,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
     quinella_parser.add_argument("--stake-jpy", type=int, default=100)
     quinella_parser.add_argument("--minimum-edge", type=float, default=0.0)
     quinella_parser.add_argument("--max-bets-per-race", type=int, default=1)
+    quinella_parser.add_argument(
+        "--require-payout-for-race",
+        action="store_true",
+        help="Skip races without an official quinella payout row.",
+    )
     quinella_parser.set_defaults(handler=_handle_quinella_sim)
 
     lightgbm_parser = subparsers.add_parser(
@@ -480,6 +510,33 @@ def _handle_jravan_build_quinella_replay_dataset(
     }
 
 
+def _handle_jravan_build_quinella_replay_dataset_raw(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    export = build_quinella_replay_dataset_from_raw(
+        args.raw_dir,
+        args.payouts_csv,
+        args.output_dir,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        pattern=args.pattern,
+        recursive=not args.no_recursive,
+        encoding=args.encoding,
+        write_timeseries=args.write_timeseries,
+    )
+    return {
+        "raw_dir": str(args.raw_dir),
+        "payouts_csv": str(args.payouts_csv),
+        "output_dir": str(args.output_dir),
+        "pattern": args.pattern,
+        "recursive": not args.no_recursive,
+        "write_timeseries": args.write_timeseries,
+        "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
+        "report_path": str(export.report_path),
+        "report": quinella_replay_dataset_report_to_dict(export.report),
+    }
+
+
 def _handle_jravan_data_qa(args: argparse.Namespace) -> dict[str, object]:
     return build_replay_data_quality_report(args.dataset_dir, args.output_path)
 
@@ -543,6 +600,7 @@ def _handle_quinella_sim(args: argparse.Namespace) -> dict[str, object]:
             strategy=args.strategy,
             minimum_edge=args.minimum_edge,
             max_bets_per_race=args.max_bets_per_race,
+            require_payout_for_race=args.require_payout_for_race,
         ),
     )
     return {

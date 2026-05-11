@@ -90,6 +90,7 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 
 - `0B42` O2 staging から pair-level 馬連 replay dataset を作る CLI を追加。
 - 2日分 smoke では `races=72`、latest pair odds `6559`、odds time series `954372`、official payout `68` を生成できた。
+- 全量評価向けに、`0B42` raw から latest pair odds だけを直接作る compact builder を追加。full time series CSV を省略して disk / memory を抑える。
 - Stacking 用の OOF prediction store schema を追加。`prediction_role`、`fold_id`、train/validation window、`feature_version`、model version、target、probability、metadata を CSV に保存する。
 - Phase 4 の次実装は、market/form/person-history model の OOF prediction 生成と、meta learner 入力 dataset の作成。
 
@@ -132,6 +133,7 @@ horse-lab lightgbm-train data/processed/jravan/<run_id>/replay artifacts/lightgb
 horse-lab lightgbm-ablation data/processed/jravan/<run_id>/replay artifacts/lightgbm_ablation/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab jravan-data-qa data/processed/jravan/<run_id>/replay artifacts/data_quality/<run_id>/report.json
 horse-lab jravan-build-quinella-replay-dataset data/interim/jravan/<o2_run_id> data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD
+horse-lab jravan-build-quinella-replay-dataset-raw data/raw/jravan data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --pattern 0B42_jvgets.txt
 horse-lab quinella-sim data/interim/jravan/<o2_run_id>/odds.csv data/processed/jravan/<run_id>/replay/payouts.csv artifacts/quinella_sim/<run_id> --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 ```
 

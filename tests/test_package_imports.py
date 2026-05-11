@@ -66,6 +66,7 @@ def test_stacking_imports():
 def test_jravan_ingestion_helpers_import():
     from horse_lab.data.jravan import (
         JvDataRecord,
+        build_quinella_replay_dataset_from_raw,
         build_quinella_replay_dataset_from_staging,
         build_replay_dataset_from_staging,
         build_jravan_runner_id,
@@ -88,6 +89,7 @@ def test_jravan_ingestion_helpers_import():
     )
 
     assert JvDataRecord.__name__ == "JvDataRecord"
+    assert callable(build_quinella_replay_dataset_from_raw)
     assert callable(build_quinella_replay_dataset_from_staging)
     assert callable(build_replay_dataset_from_staging)
     assert callable(build_jravan_runner_id)

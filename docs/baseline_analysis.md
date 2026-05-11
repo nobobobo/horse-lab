@@ -95,6 +95,39 @@ LightGBM v1 の feature importance では `entry_win_odds` が gain の 57.8% �
 
 この dataset の `odds.csv` と `payouts.csv` を `quinella-sim` に渡すと、上記 favorite simulation と同じ settlement 結果になる。
 
+## 馬連 Full Evaluation
+
+2026-05-11 に、S3 の日次 backfill から `0B42_jvgets.txt` だけを同期し、2025-05-10 から 2026-05-03 の settlement 可能期間で full evaluation を実行した。2026-05-09 以降は result/payout が未確定の race が混ざるため除外。
+
+- Raw files: 3528
+- O2 records: 558040
+- Pair odds read: 50567252
+- Compact replay dataset: `data/processed/jravan/quinella_0B42_20250510_20260503_full_v1/replay`
+- Latest pair odds: 323904
+- Official quinella payout rows: 3295
+- Settleable races: 3283
+
+Favorite pair strategy は、各 race で最新 odds が最も低い馬連ペアに 100 JPY 固定で賭ける基準線。
+
+| Strategy | Races | Bets | Wins | Hit rate | Stake | Payout | Profit | ROI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Favorite, settleable only | 3283 | 3283 | 583 | 17.76% | 328300 | 273530 | -54770 | -16.68% |
+| Positive-edge diagnostic, settleable only | 3283 | 3283 | 146 | 4.45% | 328300 | 247350 | -80950 | -24.66% |
+
+`positive-edge` は model probability ではなく、利用可能な pair odds だけを正規化した診断用なので、収益戦略としては扱わない。馬連 market では欠損ペアや発売停止/取消の扱いがあり、単純な正規化 edge は過信できない。
+
+Favorite strategy の odds band 別 ROI:
+
+| Odds band | Bets | Wins | Hit rate | Profit | ROI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10-15 | 21 | 14 | 66.67% | -200 | -9.52% |
+| 15-20 | 75 | 37 | 49.33% | -680 | -9.07% |
+| 20-30 | 291 | 95 | 32.65% | -4740 | -16.29% |
+| 30-50 | 1011 | 225 | 22.26% | -11240 | -11.12% |
+| 50+ | 1885 | 212 | 11.25% | -37910 | -20.11% |
+
+この full evaluation は、馬連の settlement accounting が機能すること、favorite benchmark が控除率に負けること、pair probability model が必要なことを確認する基準線。
+
 ## Phase 3.5 が必要な理由
 
 Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を再学習するだけの状態を避ける必要がある。

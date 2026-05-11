@@ -74,6 +74,7 @@ from horse_lab.data.jravan.quinella_replay_dataset import (
     QUINELLA_REPLAY_REPORT_FILENAME,
     QuinellaReplayDatasetExport,
     QuinellaReplayDatasetReport,
+    build_quinella_replay_dataset_from_raw,
     build_quinella_replay_dataset_from_staging,
     quinella_replay_dataset_report_to_dict,
 )
@@ -128,6 +129,7 @@ __all__ = [
     "build_jravan_race_id",
     "build_jravan_runner_id",
     "build_jravan_s3_raw_sync_plan",
+    "build_quinella_replay_dataset_from_raw",
     "build_quinella_replay_dataset_from_staging",
     "entry_to_csv_row",
     "ingest_jvdata_directory_to_staging",
