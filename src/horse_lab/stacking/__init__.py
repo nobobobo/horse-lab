@@ -1,5 +1,38 @@
 """Stacking and meta-learning utilities."""
 
+from horse_lab.stacking.blend import (
+    BlendSearchResult,
+    ConvexBlendModel,
+    blend_search_result_to_dict,
+    search_convex_blend,
+    search_convex_blend_from_csv,
+)
+from horse_lab.stacking.meta_dataset import (
+    META_DATASET_BASE_FIELDS,
+    MetaDatasetBuildResult,
+    build_meta_dataset,
+    build_meta_dataset_from_csv,
+    meta_dataset_build_result_to_dict,
+    model_prediction_column,
+)
+from horse_lab.stacking.meta_learner import (
+    META_PREDICTION_FIELDS,
+    LogisticMetaModel,
+    MetaFeatureRow,
+    MetaLearnerTrainingResult,
+    meta_learner_training_result_to_dict,
+    read_meta_feature_rows,
+    train_logistic_meta_learner,
+    train_logistic_meta_learner_from_csv,
+)
+from horse_lab.stacking.phase4_study import (
+    SEGMENT_METRIC_FIELDS,
+    WALKFORWARD_PREDICTION_FIELDS,
+    Phase4StudyResult,
+    phase4_study_result_to_dict,
+    run_phase4_study,
+    run_phase4_study_from_csv,
+)
 from horse_lab.stacking.prediction_store import (
     OOF_PREDICTION_CSV_FIELDS,
     PredictionRole,
@@ -11,11 +44,36 @@ from horse_lab.stacking.prediction_store import (
 )
 
 __all__ = [
+    "BlendSearchResult",
+    "ConvexBlendModel",
+    "META_DATASET_BASE_FIELDS",
+    "META_PREDICTION_FIELDS",
     "OOF_PREDICTION_CSV_FIELDS",
+    "SEGMENT_METRIC_FIELDS",
+    "WALKFORWARD_PREDICTION_FIELDS",
+    "LogisticMetaModel",
+    "MetaFeatureRow",
+    "MetaDatasetBuildResult",
+    "MetaLearnerTrainingResult",
+    "Phase4StudyResult",
     "PredictionRole",
     "StoredPrediction",
+    "build_meta_dataset",
+    "build_meta_dataset_from_csv",
+    "blend_search_result_to_dict",
+    "meta_dataset_build_result_to_dict",
+    "meta_learner_training_result_to_dict",
     "model_prediction_to_stored_prediction",
+    "model_prediction_column",
+    "read_meta_feature_rows",
     "read_prediction_store_csv",
+    "phase4_study_result_to_dict",
+    "run_phase4_study",
+    "run_phase4_study_from_csv",
+    "search_convex_blend",
+    "search_convex_blend_from_csv",
     "stored_prediction_to_csv_row",
+    "train_logistic_meta_learner",
+    "train_logistic_meta_learner_from_csv",
     "write_prediction_store_csv",
 ]

@@ -69,6 +69,111 @@ LightGBM v1 の feature importance では `entry_win_odds` が gain の 57.8% �
 
 `full` の top gain は `entry_win_odds` が 50.8%。`no_market` では `jockey_past_win_rate`、`last_finish_position`、`top3_rate_last5` が上位に来る。つまり market 非依存の signal は存在するが、単体では market-implied を上回るほど強くない。Phase 4 では OOF prediction と calibration で、market と非 market model の残差を重ねる方向がよい。
 
+## Phase 4 OOF / Stacking 準備
+
+OOF prediction は、各 validation fold の予測を、その fold を学習に使っていない Level 0 model だけで作る予測。meta learner が in-fold prediction を見て過学習するのを避けるため、stacking では必須の学習素材になる。
+
+2026-05-11 に、runner-level win probability の Phase 4 初回 OOF artifact を生成した。
+
+- Dataset: `data/processed/jravan/daily_backfill_RACE_20250509_20260509_with_payouts_v1/replay`
+- Feature version: `jravan-replay-v2`
+- Validation: 2026-03-01 から 2026-05-09
+- Folds: `202603`, `202604`, `202605`
+- Artifact: `artifacts/oof/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20260301_20260509/oof_report.json`
+- Stored predictions: `25497`
+- Meta dataset: `artifacts/stacking/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20260301_20260509/meta_features.csv`
+- Meta rows: `8499`
+
+OOF metrics:
+
+| Model | Predictions | Log loss | Brier | ECE |
+| --- | ---: | ---: | ---: | ---: |
+| market | 8499 | 0.20398 | 0.05713 | 0.00523 |
+| lightgbm_full | 8499 | 0.20817 | 0.05802 | 0.01066 |
+| lightgbm_no_market | 8499 | 0.22670 | 0.06142 | 0.00550 |
+
+単体性能は market がまだ最良。Phase 4 の狙いは、LightGBM が market を単純に上回ることではなく、market が外している race/runner で非 market signal が残差を補えるかを meta learner と holdout / paper trading で検証すること。
+
+### Logistic Meta Learner MVP
+
+OOF meta dataset から、標準ライブラリだけで動く logistic meta learner を追加した。入力予測は logit 変換し、出力は race 内で win probability が合計 1 になるよう正規化する。初回評価では `202603` / `202604` fold で学習し、最新の `202605` fold を temporal holdout にした。
+
+- Artifact: `artifacts/stacking_meta/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20260301_20260509/meta_evaluation.json`
+- Train rows: `7511`
+- Holdout rows: `988`
+- Holdout winners: `71`
+
+Holdout metrics:
+
+| Model | Log loss | Brier |
+| --- | ---: | ---: |
+| Logistic meta | 0.20270 | 0.05625 |
+| LightGBM full | 0.20188 | 0.05585 |
+| Market-implied | 0.20223 | 0.05589 |
+| LightGBM no-market | 0.22288 | 0.05973 |
+
+結論として、初回の logistic stacking は holdout で最良ではない。係数は market と LightGBM full を強く見ており、no-market signal は小さい補助に留まった。現時点では Phase 4 の採用条件は「meta learner が holdout で market / best Level 0 を上回ること」。この条件を満たすまでは market / LightGBM full を基準線として維持する。
+
+### Convex Blend Search
+
+Logistic meta learner は自由度が高めなので、より解釈しやすい比較として convex blend も追加した。各 Level 0 予測列に非負重みを付け、重み合計を 1 に固定する。重みは train folds の log loss を最小化する grid search で選び、同じ `202605` fold で holdout 評価する。
+
+- Artifact: `artifacts/stacking_blend/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20260301_20260509/blend_evaluation.json`
+- Grid step: `0.05`
+- Candidates: `231`
+- Selected weights:
+  - LightGBM full: `0.10`
+  - LightGBM no-market: `0.00`
+  - Market-implied: `0.90`
+
+Holdout metrics:
+
+| Model | Log loss | Brier |
+| --- | ---: | ---: |
+| Convex blend | 0.20189 | 0.05581 |
+| LightGBM full | 0.20188 | 0.05585 |
+| Market-implied | 0.20223 | 0.05589 |
+| LightGBM no-market | 0.22288 | 0.05973 |
+
+Blend は market より改善したが、log loss では LightGBM full にごく僅差で負けた。一方で Brier は blend が最良なので、確率の平均二乗誤差ではわずかに改善している。現時点では「有望だが採用ゲート未通過」。次は holdout fold を増やす、venue/surface/distance/odds band 別に blend が効く subset を探す、calibration を入れる、という順がよい。
+
+### Phase 4 Walk-Forward Study
+
+Phase 4 完走判定として、OOF 期間を 2025-10-01 から 2026-05-09 まで拡張し、月次 walk-forward study を実行した。
+
+- OOF artifact: `artifacts/oof/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/oof_report.json`
+- Meta dataset: `artifacts/stacking/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/meta_features.csv`
+- Phase 4 study: `artifacts/phase4_study/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/phase4_study_report.json`
+- OOF folds: `202510` から `202605`
+- Stored predictions: `82410`
+- Meta rows: `27470`
+- Walk-forward holdout folds: `202601` から `202605`
+- Walk-forward observations: `16173`
+
+Walk-forward overall:
+
+| Method | Log loss | Brier |
+| --- | ---: | ---: |
+| Convex blend | 0.20136 | 0.05643 |
+| Market-implied | 0.20139 | 0.05643 |
+| Logistic meta | 0.20204 | 0.05658 |
+| LightGBM full | 0.20624 | 0.05741 |
+| LightGBM no-market | 0.22539 | 0.06111 |
+
+採用判定は `promote_ensemble_candidate`。ただし改善幅は market に対して log loss `0.000026` と非常に小さい。つまり「Phase 4 は成功したが、強い収益シグナルを発見した」というより、「market を壊さず、ごく小さく LightGBM signal を足す restrained ensemble の候補を作れた」という評価。
+
+Fold 別の blend weight:
+
+| Holdout | LightGBM full | LightGBM no-market | Market |
+| --- | ---: | ---: | ---: |
+| 202601 | 0.00 | 0.00 | 1.00 |
+| 202602 | 0.00 | 0.00 | 1.00 |
+| 202603 | 0.05 | 0.00 | 0.95 |
+| 202604 | 0.05 | 0.00 | 0.95 |
+| 202605 | 0.05 | 0.00 | 0.95 |
+
+Segment study では、blend は `Niigata`、`Chukyo`、`1201_1600m`、`15頭以上`、market probability `0.05-0.10` などで market より良かった。一方で `10頭以下`、`2000m超`、障害、`Hanshin` では悪化した。現時点では segment-specific model を採用するほど改善幅は大きくないため、Phase 5 では全体 restrained blend を paper trading で監視し、segment は alert / diagnostics として使う。
+
 ## 馬連 Simulation
 
 `0B42` のローカル smoke data と `HR` official payout を使い、馬連 favorite strategy の settlement を確認した。
@@ -148,10 +253,7 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - Phase 3: 完了。Kelly/backtest/paper trading artifact を出力できる。
 - Phase 3.5: 完了。`jravan-replay-v2` の実データ build、official payout/pool ingest、LightGBM ablation が通る。
 - Phase 3.6: 完了。Data QA と馬連 settlement simulation が通る。
-
-Phase 4 に入る条件:
-
-- `0B42` の過去1年 backfill を staging/replay 可能にする。
-- market / form / person-history model の OOF prediction を生成して store に保存する。
+- Phase 3.7: 完了。OOF prediction store、`level0-oof`、meta dataset builder が通る。
+- Phase 4: 完了。OOF、meta dataset、logistic meta learner、convex blend search、walk-forward/segment study を生成/評価済み。convex blend は market を小幅に上回り、paper trading 候補。
 
 当面は収益最大化より、calibration、CLV、odds band / venue / surface / distance 別の歪み検出を優先する。

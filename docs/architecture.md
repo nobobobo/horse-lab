@@ -86,23 +86,46 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - LightGBM ablation は `full`、`no_market`、`no_movement` を同一 split で比較する。
 - `0B42` 馬連 odds と official payout を使う `quinella-sim` を追加。現在は favorite / positive-edge strategy の settlement 検証が目的。
 
-### Phase 3.7: Phase 4 足場 実装中
+### Phase 3.7: Phase 4 足場 完了
 
 - `0B42` O2 staging から pair-level 馬連 replay dataset を作る CLI を追加。
 - 2日分 smoke では `races=72`、latest pair odds `6559`、odds time series `954372`、official payout `68` を生成できた。
 - 全量評価向けに、`0B42` raw から latest pair odds だけを直接作る compact builder を追加。full time series CSV を省略して disk / memory を抑える。
 - Stacking 用の OOF prediction store schema を追加。`prediction_role`、`fold_id`、train/validation window、`feature_version`、model version、target、probability、metadata を CSV に保存する。
-- Phase 4 の次実装は、market/form/person-history model の OOF prediction 生成と、meta learner 入力 dataset の作成。
+- `level0-oof` CLI で monthly expanding window の out-of-fold prediction を生成する。
+- `stacking-build-meta-dataset` CLI で OOF prediction を runner-level の meta learner 入力テーブルへ pivot する。
 
-### Phase 4: Ensemble 次フェーズ
+### Phase 4: Ensemble 完了
 
-Phase 4 は以下が揃ってから入る。
+Phase 4 の runner-level win probability stacking は一通り完了。採用判断は単発 holdout ではなく walk-forward gate に寄せる。
 
-- enriched replay dataset が point-in-time safe に再生成されている。
-- realtime odds (`0B31/0B41`) で CLV / odds movement を評価できる。
-- payout/pool の official mapper がある。
-- LightGBM の feature ablation で market 以外の情報価値を確認できる。
-- out-of-fold prediction store の schema が決まっている。
+- 2025-10-01 から 2026-05-09 の OOF artifact を生成済み。
+- Folds: `202510` から `202605`
+- Models: `market`, `lightgbm_full`, `lightgbm_no_market`
+- Stored predictions: `82410`
+- Meta dataset rows: `27470`
+- Artifact:
+  - `artifacts/oof/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/oof_predictions.csv`
+  - `artifacts/stacking/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/meta_features.csv`
+  - `artifacts/phase4_study/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/phase4_study_report.json`
+
+実装済み study:
+
+- `stacking-train-meta`: dependency-light logistic meta learner。
+- `stacking-search-blend`: Level 0 予測列の convex blend weight search。
+- `stacking-phase4-study`: walk-forward 評価、fold 別 weight/coefficient、segment 別 metrics を出力。
+
+Walk-forward 結果は、`202510` から `202512` を最小 meta train folds とし、`202601` から `202605` を順次 holdout にしたもの。
+
+| Method | Log loss | Brier |
+| --- | ---: | ---: |
+| Convex blend | 0.20136 | 0.05643 |
+| Market-implied | 0.20139 | 0.05643 |
+| Logistic meta | 0.20204 | 0.05658 |
+| LightGBM full | 0.20624 | 0.05741 |
+| LightGBM no-market | 0.22539 | 0.06111 |
+
+Convex blend が market をわずかに上回ったため、Phase 4 の候補としては `promote_ensemble_candidate`。ただし改善幅は log loss で `0.000026` と小さいため、即資金投入ではなく paper trading gate へ進める。実運用では market を主軸に、LightGBM full を 0-5% 程度混ぜる restrained blend を候補にする。no-market model は単体では弱く、blend weight も 0 になったため、現時点では診断用に留める。
 
 ### Phase 5: 自動化
 
@@ -131,6 +154,11 @@ horse-lab jravan-build-replay-dataset data/interim/jravan/<race_run_id> data/pro
 horse-lab market-replay data/processed/jravan/<run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-train data/processed/jravan/<run_id>/replay artifacts/lightgbm/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-ablation data/processed/jravan/<run_id>/replay artifacts/lightgbm_ablation/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
+horse-lab level0-oof data/processed/jravan/<run_id>/replay artifacts/oof/<run_id> --validation-start-date YYYY-MM-DD --validation-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
+horse-lab stacking-build-meta-dataset artifacts/oof/<run_id>/oof_predictions.csv data/processed/jravan/<run_id>/replay/results.csv artifacts/stacking/<run_id>
+horse-lab stacking-train-meta artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_meta/<run_id>
+horse-lab stacking-search-blend artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_blend/<run_id>
+horse-lab stacking-phase4-study artifacts/stacking/<run_id>/meta_features.csv data/processed/jravan/<run_id>/replay/races.csv artifacts/phase4_study/<run_id>
 horse-lab jravan-data-qa data/processed/jravan/<run_id>/replay artifacts/data_quality/<run_id>/report.json
 horse-lab jravan-build-quinella-replay-dataset data/interim/jravan/<o2_run_id> data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 horse-lab jravan-build-quinella-replay-dataset-raw data/raw/jravan data/processed/jravan/<run_id>/replay/payouts.csv data/processed/jravan/<quinella_run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --pattern 0B42_jvgets.txt

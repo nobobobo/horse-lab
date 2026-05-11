@@ -46,9 +46,21 @@ from horse_lab.data.jravan.raw import JV_DATA_ENCODING
 from horse_lab.evaluation import PerformanceSummary, ProbabilitySummary
 from horse_lab.pipelines import (
     lightgbm_training_result_to_dict,
+    oof_run_result_to_dict,
+    run_level0_oof_from_csv,
     run_lightgbm_ablation_from_csv,
     run_lightgbm_training_from_csv,
     run_market_replay,
+)
+from horse_lab.stacking import (
+    blend_search_result_to_dict,
+    build_meta_dataset_from_csv,
+    meta_dataset_build_result_to_dict,
+    meta_learner_training_result_to_dict,
+    phase4_study_result_to_dict,
+    run_phase4_study_from_csv,
+    search_convex_blend_from_csv,
+    train_logistic_meta_learner_from_csv,
 )
 
 
@@ -325,6 +337,128 @@ def build_parser() -> argparse.ArgumentParser:
     lightgbm_ablation_parser.add_argument("--random-seed", type=int, default=42)
     lightgbm_ablation_parser.add_argument("--model-version", default="lightgbm-win-v1")
     lightgbm_ablation_parser.set_defaults(handler=_handle_lightgbm_ablation)
+
+    oof_parser = subparsers.add_parser(
+        "level0-oof",
+        help="Generate monthly out-of-fold Level 0 predictions for stacking.",
+    )
+    oof_parser.add_argument("dataset_dir", type=Path)
+    oof_parser.add_argument("artifact_dir", type=Path)
+    oof_parser.add_argument(
+        "--validation-start-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    oof_parser.add_argument(
+        "--validation-end-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    oof_parser.add_argument("--as-of", type=_parse_cli_datetime, required=True)
+    oof_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+        help="Feature version to read from features.csv.",
+    )
+    oof_parser.add_argument("--random-seed", type=int, default=42)
+    oof_parser.add_argument(
+        "--use-odds-timeseries",
+        action="store_true",
+        help="Read odds_timeseries.csv instead of the compact latest odds.csv.",
+    )
+    oof_parser.add_argument(
+        "--model-key",
+        action="append",
+        default=None,
+        choices=("market", "lightgbm_full", "lightgbm_no_market"),
+        help="Level 0 model key to include. Defaults to all supported models.",
+    )
+    oof_parser.set_defaults(handler=_handle_level0_oof)
+
+    meta_dataset_parser = subparsers.add_parser(
+        "stacking-build-meta-dataset",
+        help="Pivot stored Level 0 predictions into a meta-learner dataset.",
+    )
+    meta_dataset_parser.add_argument("predictions_csv", type=Path)
+    meta_dataset_parser.add_argument("results_csv", type=Path)
+    meta_dataset_parser.add_argument("output_dir", type=Path)
+    meta_dataset_parser.add_argument(
+        "--prediction-role",
+        default="oof",
+        choices=("oof", "holdout", "live", "backfill"),
+    )
+    meta_dataset_parser.add_argument(
+        "--target",
+        default="win_probability",
+        choices=("win_probability", "place_probability", "show_probability"),
+    )
+    meta_dataset_parser.add_argument(
+        "--keep-incomplete-rows",
+        action="store_true",
+        help="Keep rows that are missing one or more model prediction columns.",
+    )
+    meta_dataset_parser.set_defaults(handler=_handle_stacking_build_meta_dataset)
+
+    meta_train_parser = subparsers.add_parser(
+        "stacking-train-meta",
+        help="Train a logistic Level 1 meta learner from meta_features.csv.",
+    )
+    meta_train_parser.add_argument("meta_features_csv", type=Path)
+    meta_train_parser.add_argument("artifact_dir", type=Path)
+    meta_train_parser.add_argument(
+        "--holdout-fold-id",
+        default=None,
+        help="Fold held out for validation. Defaults to the latest fold_id.",
+    )
+    meta_train_parser.add_argument(
+        "--feature-column",
+        action="append",
+        default=None,
+        help="Prediction column to use. Defaults to every pred__ column.",
+    )
+    meta_train_parser.add_argument(
+        "--model-version",
+        default="logistic-meta-v1",
+    )
+    meta_train_parser.add_argument("--learning-rate", type=float, default=0.05)
+    meta_train_parser.add_argument("--max-iterations", type=int, default=2000)
+    meta_train_parser.add_argument("--l2", type=float, default=1e-3)
+    meta_train_parser.set_defaults(handler=_handle_stacking_train_meta)
+
+    blend_parser = subparsers.add_parser(
+        "stacking-search-blend",
+        help="Search convex Level 0 blending weights using temporal holdout.",
+    )
+    blend_parser.add_argument("meta_features_csv", type=Path)
+    blend_parser.add_argument("artifact_dir", type=Path)
+    blend_parser.add_argument(
+        "--holdout-fold-id",
+        default=None,
+        help="Fold held out for validation. Defaults to the latest fold_id.",
+    )
+    blend_parser.add_argument(
+        "--feature-column",
+        action="append",
+        default=None,
+        help="Prediction column to use. Defaults to every pred__ column.",
+    )
+    blend_parser.add_argument("--model-version", default="convex-blend-v1")
+    blend_parser.add_argument("--grid-step", type=float, default=0.05)
+    blend_parser.set_defaults(handler=_handle_stacking_search_blend)
+
+    phase4_parser = subparsers.add_parser(
+        "stacking-phase4-study",
+        help="Run walk-forward Phase 4 stacking and segment studies.",
+    )
+    phase4_parser.add_argument("meta_features_csv", type=Path)
+    phase4_parser.add_argument("races_csv", type=Path)
+    phase4_parser.add_argument("artifact_dir", type=Path)
+    phase4_parser.add_argument("--min-train-folds", type=int, default=3)
+    phase4_parser.add_argument("--blend-grid-step", type=float, default=0.05)
+    phase4_parser.add_argument("--logistic-learning-rate", type=float, default=0.05)
+    phase4_parser.add_argument("--logistic-max-iterations", type=int, default=2000)
+    phase4_parser.add_argument("--logistic-l2", type=float, default=1e-3)
+    phase4_parser.set_defaults(handler=_handle_stacking_phase4_study)
 
     daily_replay_parser = subparsers.add_parser(
         "jravan-daily-market-replay",
@@ -654,6 +788,78 @@ def _handle_lightgbm_ablation(args: argparse.Namespace) -> dict[str, object]:
         random_seed=args.random_seed,
         model_version=args.model_version,
     )
+
+
+def _handle_level0_oof(args: argparse.Namespace) -> dict[str, object]:
+    result = run_level0_oof_from_csv(
+        args.dataset_dir,
+        args.artifact_dir,
+        validation_start_date=args.validation_start_date,
+        validation_end_date=args.validation_end_date,
+        as_of=args.as_of,
+        feature_version=args.feature_version,
+        model_keys=args.model_key,
+        random_seed=args.random_seed,
+        use_odds_timeseries=args.use_odds_timeseries,
+    )
+    summary = oof_run_result_to_dict(result)
+    summary["dataset_dir"] = str(args.dataset_dir)
+    summary["artifact_dir"] = str(args.artifact_dir)
+    return summary
+
+
+def _handle_stacking_build_meta_dataset(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    result = build_meta_dataset_from_csv(
+        args.predictions_csv,
+        args.results_csv,
+        args.output_dir,
+        prediction_role=args.prediction_role,
+        target=args.target,
+        drop_incomplete_rows=not args.keep_incomplete_rows,
+    )
+    return meta_dataset_build_result_to_dict(result)
+
+
+def _handle_stacking_train_meta(args: argparse.Namespace) -> dict[str, object]:
+    result = train_logistic_meta_learner_from_csv(
+        args.meta_features_csv,
+        args.artifact_dir,
+        holdout_fold_id=args.holdout_fold_id,
+        feature_columns=args.feature_column,
+        model_version=args.model_version,
+        learning_rate=args.learning_rate,
+        max_iterations=args.max_iterations,
+        l2=args.l2,
+    )
+    return meta_learner_training_result_to_dict(result)
+
+
+def _handle_stacking_search_blend(args: argparse.Namespace) -> dict[str, object]:
+    result = search_convex_blend_from_csv(
+        args.meta_features_csv,
+        args.artifact_dir,
+        holdout_fold_id=args.holdout_fold_id,
+        feature_columns=args.feature_column,
+        model_version=args.model_version,
+        grid_step=args.grid_step,
+    )
+    return blend_search_result_to_dict(result)
+
+
+def _handle_stacking_phase4_study(args: argparse.Namespace) -> dict[str, object]:
+    result = run_phase4_study_from_csv(
+        args.meta_features_csv,
+        args.races_csv,
+        args.artifact_dir,
+        min_train_folds=args.min_train_folds,
+        blend_grid_step=args.blend_grid_step,
+        logistic_learning_rate=args.logistic_learning_rate,
+        logistic_max_iterations=args.logistic_max_iterations,
+        logistic_l2=args.logistic_l2,
+    )
+    return phase4_study_result_to_dict(result)
 
 
 def _handle_jravan_daily_market_replay(args: argparse.Namespace) -> dict[str, object]:
