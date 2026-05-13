@@ -183,6 +183,24 @@ def build_parser() -> argparse.ArgumentParser:
             "Can be supplied multiple times."
         ),
     )
+    replay_dataset_parser.add_argument(
+        "--horse-master-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Optional external horse master CSV keyed by horse_id with "
+            "birth_date, sire_id, dam_id, and damsire_id."
+        ),
+    )
+    replay_dataset_parser.add_argument(
+        "--rating-history-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Optional point-in-time rating CSV with horse_id, as_of, rating, "
+            "and optional source."
+        ),
+    )
     replay_dataset_parser.set_defaults(handler=_handle_jravan_build_replay_dataset)
 
     quinella_dataset_parser = subparsers.add_parser(
@@ -806,10 +824,20 @@ def _handle_jravan_build_replay_dataset(
         feature_version=args.feature_version,
         max_odds_captured_at=args.max_odds_captured_at,
         odds_staging_dirs=args.odds_staging_dir,
+        horse_master_csv=args.horse_master_csv,
+        rating_history_csv=args.rating_history_csv,
     )
     return {
         "staging_dir": str(args.staging_dir),
         "output_dir": str(args.output_dir),
+        "horse_master_csv": (
+            str(args.horse_master_csv) if args.horse_master_csv is not None else None
+        ),
+        "rating_history_csv": (
+            str(args.rating_history_csv)
+            if args.rating_history_csv is not None
+            else None
+        ),
         "csv_paths": {name: str(path) for name, path in export.csv_paths.items()},
         "report_path": str(export.report_path),
         "report": replay_dataset_report_to_dict(export.report),

@@ -6,6 +6,14 @@ from horse_lab.data.csv_repositories import (
     CsvRaceRepository,
     CsvResultRepository,
 )
+from horse_lab.data.master import (
+    HorseMasterRecord,
+    HorseRatingRecord,
+    index_rating_history,
+    latest_rating_as_of,
+    read_horse_master_csv,
+    read_horse_rating_history_csv,
+)
 from horse_lab.data.repositories import (
     FeatureRepository,
     OddsRepository,
@@ -19,7 +27,13 @@ __all__ = [
     "CsvRaceRepository",
     "CsvResultRepository",
     "FeatureRepository",
+    "HorseMasterRecord",
+    "HorseRatingRecord",
     "OddsRepository",
     "RaceRepository",
     "ResultRepository",
+    "index_rating_history",
+    "latest_rating_as_of",
+    "read_horse_master_csv",
+    "read_horse_rating_history_csv",
 ]

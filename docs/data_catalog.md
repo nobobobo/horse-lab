@@ -27,6 +27,8 @@ Older processed datasets created before this change may not contain `entries.csv
 | `0B41` | Realtime odds | Historical only if captured/backfilled | win/place/bracket odds snapshots | market-implied probability, movement, CLV |
 | `0B42` | Realtime odds | Historical only if captured/backfilled | quinella pair odds snapshots | pair-level replay, 馬連 simulation |
 | `0B30` | Realtime all bet types | About one-week availability, must accumulate | all bet-type odds | future trio/trifecta simulation |
+| Horse master CSV | External master | User supplied / versioned | birth date, sire, dam, damsire | pedigree/suitability specialist |
+| Rating history CSV | External master | User supplied / versioned | point-in-time horse rating | ability prior, no-market/residual model |
 
 ## Feature Provenance
 
@@ -34,6 +36,8 @@ Older processed datasets created before this change may not contain `entries.csv
 | --- | --- | --- |
 | Entry details | `horse_number`, `gate_number`, `carried_weight_kg`, `body_weight_kg` | `RACE/SE` |
 | Horse profile codes | `breed_code`, `coat_color_code`, `trainer_affiliation_code`, `horse_symbol_code` | `RACE/SE` |
+| Pedigree master | `pedigree_sire_id`, `pedigree_dam_id`, `pedigree_damsire_id`, `horse_birth_year` | External horse master CSV |
+| Rating history | `horse_rating`, `horse_rating_delta_to_field_mean`, `horse_rating_rank_in_race` | External rating history CSV |
 | Horse identity | `horse_id` in `entries.csv` | `RACE/SE` |
 | Race conditions | `race_venue`, `race_surface`, `race_distance_m`, `race_track_condition` | `RACE/RA` |
 | Race title / class hints | `race_grade_group`, `race_title_type`, `race_has_title` | `RACE/RA` |
@@ -70,9 +74,39 @@ The user-facing modeling idea maps into the data catalog as follows:
 | Detailed passing order / final sectional / margins | Partially present in result schema; extraction coverage should be expanded | Pace and bias specialist |
 | Official rating / handicap rating | Not yet ingested | Independent ability prior, no-market model |
 | Breed / sire / dam / damsire / grandparents | `breed_code` exists but is single-valued in the current dataset; sire/dam/damsire/grandparents still require master-data ingest | Pedigree/suitability specialist, distance/surface aptitude |
+| Point-in-time rating | Optional `rating_history.csv` ingest is implemented; actual rating source still needs to be supplied | Rating/class specialist, no-market residual |
 | Training comments / paddock / text | Not yet ingested | Transformer/text specialist |
 
 Near-term priority is to add data that is both point-in-time safe and not already embedded in market odds: official rating, pedigree master, detailed past-performance lines, and same-day pace/bias features.
+
+## External Master CSV Contracts
+
+`horse_master.csv`:
+
+```csv
+horse_id,horse_name,birth_date,sire_id,dam_id,damsire_id
+2020123456,Example Horse,2020-03-01,2001000001,2002000002,1999000003
+```
+
+`rating_history.csv`:
+
+```csv
+horse_id,as_of,rating,source
+2020123456,2026-05-07T09:00:00,72.5,official
+```
+
+Replay build usage:
+
+```bash
+horse-lab jravan-build-replay-dataset \
+  data/interim/jravan/<race_run_id> \
+  data/processed/jravan/<run_id>/replay \
+  --odds-staging-dir data/interim/jravan/<odds_run_id> \
+  --horse-master-csv data/external/horse_master.csv \
+  --rating-history-csv data/external/rating_history.csv
+```
+
+Rating rows are point-in-time filtered: for each target race, only rows with `as_of <= feature row as_of` are eligible.
 
 ## Quality Gates
 

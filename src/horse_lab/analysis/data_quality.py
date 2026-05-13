@@ -50,6 +50,20 @@ DATA_SOURCE_CATALOG: tuple[dict[str, object], ...] = (
         "primary_uses": ["trio_simulation", "trifecta_simulation"],
         "point_in_time_notes": "Must be accumulated before the one-week retention expires.",
     },
+    {
+        "source": "HORSE_MASTER",
+        "layer": "external_master",
+        "contains": ["birth_date", "sire_id", "dam_id", "damsire_id"],
+        "primary_uses": ["pedigree_suitability", "growth_curve"],
+        "point_in_time_notes": "Use stable horse profile fields; avoid post-race derived aggregates.",
+    },
+    {
+        "source": "RATING_HISTORY",
+        "layer": "external_master",
+        "contains": ["horse_rating_history"],
+        "primary_uses": ["ability_prior", "no_market_model", "residual_model"],
+        "point_in_time_notes": "Use only rating rows with as_of <= target race as_of.",
+    },
 )
 
 FEATURE_PROVENANCE_RULES: tuple[tuple[str, str, str], ...] = (
@@ -63,6 +77,10 @@ FEATURE_PROVENANCE_RULES: tuple[tuple[str, str, str], ...] = (
     ("breed_code", "RACE", "entry_details"),
     ("coat_color_code", "RACE", "entry_details"),
     ("trainer_affiliation_code", "RACE", "entry_details"),
+    ("pedigree_", "HORSE_MASTER", "pedigree_master"),
+    ("horse_birth_", "HORSE_MASTER", "pedigree_master"),
+    ("horse_age_days_from_birth", "HORSE_MASTER", "pedigree_master"),
+    ("horse_rating", "RATING_HISTORY", "rating_history"),
     ("jockey_id", "RACE", "entry_details"),
     ("trainer_id", "RACE", "entry_details"),
     ("body_weight", "RACE", "entry_details"),
@@ -397,6 +415,8 @@ def _dataset_manifest(
             "official_payouts": int(payouts["official_rows"]) > 0,
             "past_performance": _has_group(feature_provenance, "past_performance"),
             "person_stats": _has_group(feature_provenance, "person_oof_stats"),
+            "pedigree_master": _has_group(feature_provenance, "pedigree_master"),
+            "rating_history": _has_group(feature_provenance, "rating_history"),
             "categorical_person_ids": (
                 "jockey_id" in feature_columns or "trainer_id" in feature_columns
             ),

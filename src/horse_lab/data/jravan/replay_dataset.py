@@ -16,6 +16,14 @@ from horse_lab.data.csv_parsing import (
     parse_result_row,
     read_csv_rows,
 )
+from horse_lab.data.master import (
+    HorseMasterRecord,
+    HorseRatingRecord,
+    index_rating_history,
+    latest_rating_as_of,
+    read_horse_master_csv,
+    read_horse_rating_history_csv,
+)
 from horse_lab.data.jravan.exporters import (
     write_entries_csv,
     write_odds_csv,
@@ -59,6 +67,15 @@ FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("breed_code"),
     FeatureName("coat_color_code"),
     FeatureName("trainer_affiliation_code"),
+    FeatureName("pedigree_sire_id"),
+    FeatureName("pedigree_dam_id"),
+    FeatureName("pedigree_damsire_id"),
+    FeatureName("horse_birth_year"),
+    FeatureName("horse_age_days_from_birth"),
+    FeatureName("horse_rating"),
+    FeatureName("horse_rating_delta_to_field_mean"),
+    FeatureName("horse_rating_rank_in_race"),
+    FeatureName("horse_rating_source"),
     FeatureName("jockey_id"),
     FeatureName("trainer_id"),
     FeatureName("body_weight_kg"),
@@ -136,6 +153,8 @@ def build_replay_dataset_from_staging(
     feature_version: str = DEFAULT_REPLAY_FEATURE_VERSION,
     max_odds_captured_at: datetime | None = None,
     odds_staging_dirs: Path | str | Sequence[Path | str] | None = None,
+    horse_master_csv: Path | str | None = None,
+    rating_history_csv: Path | str | None = None,
 ) -> ReplayDatasetExport:
     """Create a replay-ready dataset from canonical JRA-VAN staging CSVs.
 
@@ -168,6 +187,16 @@ def build_replay_dataset_from_staging(
     official_win_payouts_by_key = _index_win_payout_rows(official_payouts)
     official_non_win_payouts_by_race = _group_non_win_payout_rows_by_race(
         official_payouts
+    )
+    horse_master_by_id = (
+        read_horse_master_csv(horse_master_csv)
+        if horse_master_csv is not None
+        else {}
+    )
+    rating_history_by_horse = (
+        index_rating_history(read_horse_rating_history_csv(rating_history_csv))
+        if rating_history_csv is not None
+        else {}
     )
 
     entries_by_race = _group_entries_by_race(entries)
@@ -228,6 +257,14 @@ def build_replay_dataset_from_staging(
         race_feature_as_of = max(
             odds_by_runner[runner_id].captured_at for runner_id in entry_runner_ids
         )
+        latest_rating_by_runner = {
+            entry.runner_id: latest_rating_as_of(
+                rating_history_by_horse.get(entry.horse_id, ()),
+                as_of=race_feature_as_of,
+            )
+            for entry in race_entries
+        }
+        rating_context = _rating_context(latest_rating_by_runner)
         selected_race = replace(race, field_size=len(race_entries))
         selected_races.append(selected_race)
         for entry in sorted(race_entries, key=lambda item: item.horse_number):
@@ -257,6 +294,9 @@ def build_replay_dataset_from_staging(
                     entry,
                     race=selected_race,
                     odds_timeseries=odds_timeseries,
+                    horse_master=horse_master_by_id.get(entry.horse_id),
+                    rating_record=latest_rating_by_runner.get(entry.runner_id),
+                    rating_context=rating_context,
                     as_of=race_feature_as_of,
                     feature_version=feature_version,
                 )
@@ -499,10 +539,18 @@ def _feature_row_from_entry(
     *,
     race: Race,
     odds_timeseries: tuple[OddsQuote, ...],
+    horse_master: HorseMasterRecord | None = None,
+    rating_record: HorseRatingRecord | None = None,
+    rating_context: Mapping[RunnerId, tuple[float | None, int | None]] | None = None,
     as_of: datetime,
     feature_version: str,
 ) -> FeatureRow:
     market_features = _market_movement_features(odds_timeseries)
+    rating_delta, rating_rank = (
+        rating_context.get(entry.runner_id, (None, None))
+        if rating_context is not None
+        else (None, None)
+    )
     return FeatureRow(
         race_id=entry.race_id,
         runner_id=entry.runner_id,
@@ -533,6 +581,38 @@ def _feature_row_from_entry(
                 entry,
                 "trainer_affiliation_code",
                 prefix="trainer_affiliation",
+            ),
+            FeatureName("pedigree_sire_id"): _prefixed_horse_id(
+                horse_master.sire_id if horse_master is not None else None,
+                prefix="sire",
+            ),
+            FeatureName("pedigree_dam_id"): _prefixed_horse_id(
+                horse_master.dam_id if horse_master is not None else None,
+                prefix="dam",
+            ),
+            FeatureName("pedigree_damsire_id"): _prefixed_horse_id(
+                horse_master.damsire_id if horse_master is not None else None,
+                prefix="damsire",
+            ),
+            FeatureName("horse_birth_year"): (
+                horse_master.birth_date.year
+                if horse_master is not None and horse_master.birth_date is not None
+                else None
+            ),
+            FeatureName("horse_age_days_from_birth"): (
+                (race.race_date - horse_master.birth_date).days
+                if horse_master is not None and horse_master.birth_date is not None
+                else None
+            ),
+            FeatureName("horse_rating"): (
+                rating_record.rating if rating_record is not None else None
+            ),
+            FeatureName("horse_rating_delta_to_field_mean"): rating_delta,
+            FeatureName("horse_rating_rank_in_race"): rating_rank,
+            FeatureName("horse_rating_source"): (
+                f"rating_source:{rating_record.source}"
+                if rating_record is not None and rating_record.source
+                else None
             ),
             FeatureName("jockey_id"): f"jockey:{entry.jockey_id}"
             if entry.jockey_id is not None
@@ -614,6 +694,39 @@ def _prefixed_metadata_value(
     if not normalized:
         return None
     return f"{prefix}:{normalized}"
+
+
+def _prefixed_horse_id(horse_id: object | None, *, prefix: str) -> str | None:
+    if horse_id is None:
+        return None
+    normalized = str(horse_id).strip()
+    if not normalized:
+        return None
+    return f"{prefix}:{normalized}"
+
+
+def _rating_context(
+    rating_by_runner: Mapping[RunnerId, HorseRatingRecord | None],
+) -> dict[RunnerId, tuple[float | None, int | None]]:
+    available = [
+        (runner_id, record)
+        for runner_id, record in rating_by_runner.items()
+        if record is not None
+    ]
+    if not available:
+        return {}
+    mean_rating = sum(record.rating for _, record in available) / len(available)
+    ranked = sorted(
+        available,
+        key=lambda item: (-item[1].rating, str(item[0])),
+    )
+    rank_by_runner = {
+        runner_id: rank for rank, (runner_id, _) in enumerate(ranked, start=1)
+    }
+    return {
+        runner_id: (record.rating - mean_rating, rank_by_runner[runner_id])
+        for runner_id, record in available
+    }
 
 
 def _race_grade_group(grade: str | None) -> str:

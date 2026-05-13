@@ -114,7 +114,8 @@
 
 - `RACE/SE` の `breed_code` は現在の one-year dataset では全て `breed:1` で、pedigree signal としては使えない。
 - `horse_symbol_code` は分散があり、小さいながら model gain も出た。ただし血統そのものではない。
-- 血統 specialist を作るには、`horse_id` をキーにした馬 master / 血統 master の ingest を別途追加する必要がある。
+- `horse_id` をキーにした外部 horse master ingest の入口は実装済み。`sire_id`、`dam_id`、`damsire_id`、`birth_date` を replay feature に合流できる。
+- 次は実データ source を決め、sire/damsire OOF stats、距離 bucket 別 top3 rate、surface 別 win rate を point-in-time safe に作る。
 
 ### 6. Rating / Class Specialist
 
@@ -130,6 +131,12 @@
 
 - rating delta within race、class up/down、斤量補正、speed figure trend を feature 化。
 - market odds を抜いた no-market / residual model の主特徴量にする。
+
+現状メモ:
+
+- `rating_history.csv` の optional ingest は実装済み。
+- replay feature には `horse_rating`、`horse_rating_delta_to_field_mean`、`horse_rating_rank_in_race`、`horse_rating_source` を追加できる。
+- rating は target race の feature `as_of` 以前の最新行だけを使う。
 
 ### 7. Pair Probability Model for 馬連
 
@@ -196,6 +203,18 @@
    - v5 rebuild は完了。`horse_symbol_code`、`coat_color_code`、`trainer_affiliation_code`、race title/grade 系は弱い signal を持つ。
    - `breed_code` は今回 dataset では情報量がない。
    - 次は full model に全部入れるのではなく、no-market/residual model での selected feature subset と regularization を比較する。
+
+8. **Pedigree / rating master join**
+   - `--horse-master-csv` と `--rating-history-csv` の optional replay join は実装済み。
+   - 実データ source が揃ったら `jravan-replay-v6` として再 build し、no-market / residual model で ablation する。
+   - raw sire/dam ID の直投入だけでなく、OOF sire stats / damsire stats を優先する。
+
+9. **次に追加するモデル候補**
+   - `lightgbm_no_market_selected`: market/odds 系を抜き、profile/pedigree/rating/pace だけに絞る。
+   - `residual_rating_overlay`: market logit に rating/pedigree residual を小さく足す。
+   - `sire_suitability_model`: sire/damsire の距離・馬場・競馬場 bucket 別適性。
+   - `track_bias_model`: 同日 target race より前の race だけで内外/前後/時計 bias を推定。
+   - `quinella_pair_model`: runner-level probability と pair market odds を組み合わせた馬連 pair probability。
 
 ## 当面の採用ゲート
 

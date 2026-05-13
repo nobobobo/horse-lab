@@ -173,6 +173,8 @@ Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を
 - v5 QA は `races=3283`、`feature_rows=45287`、`odds_timeseries=7054152`、`unique_horses=11631`、`feature_count=70`、warnings なし。
 - v5 LightGBM ablation では `no_movement` が最良で log loss `0.20856`。`coat_color_code`、`horse_symbol_code`、`trainer_affiliation_code`、race title/grade 系は弱い信号を持つが、`breed_code` は今回 dataset では単一値のため効かなかった。
 - したがって pedigree / parents / grandparents は `SE` の品種コードでは足りず、馬 master または外部血統 master の ingest が必要。v5 は「既存 RACE から取れるプロフィール強化」の基準線として保持する。
+- 外部 horse master / rating history の optional ingest 入口を追加。`jravan-build-replay-dataset --horse-master-csv ... --rating-history-csv ...` で `horse_id` に紐づく sire/dam/damsire、birth date、point-in-time rating を replay feature に合流できる。
+- rating は target race の feature `as_of` 以前の最新行だけを採用する。未来の rating 行は replay feature に入れない。
 
 ## JRA-VAN / S3 運用方針
 
@@ -194,6 +196,7 @@ horse-lab jravan-s3-pull-raw <run_id> data/raw/jravan
 horse-lab jravan-ingest-dir data/raw/jravan/<run_id> data/interim/jravan/<run_id>
 horse-lab jravan-build-replay-dataset data/interim/jravan/<run_id> data/processed/jravan/<run_id>/replay
 horse-lab jravan-build-replay-dataset data/interim/jravan/<race_run_id> data/processed/jravan/<run_id>/replay --odds-staging-dir data/interim/jravan/<odds_run_id>
+horse-lab jravan-build-replay-dataset data/interim/jravan/<race_run_id> data/processed/jravan/<run_id>/replay --horse-master-csv data/external/horse_master.csv --rating-history-csv data/external/rating_history.csv
 horse-lab market-replay data/processed/jravan/<run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-train data/processed/jravan/<run_id>/replay artifacts/lightgbm/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-ablation data/processed/jravan/<run_id>/replay artifacts/lightgbm_ablation/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS

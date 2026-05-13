@@ -259,6 +259,61 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     assert report["output_counts"]["entries"] == 2
 
 
+def test_build_replay_dataset_can_join_external_pedigree_and_ratings(tmp_path):
+    staging_dir = tmp_path / "staging"
+    output_dir = tmp_path / "replay"
+    horse_master_csv = tmp_path / "horse_master.csv"
+    rating_history_csv = tmp_path / "rating_history.csv"
+    _write_staging_fixture(staging_dir)
+    horse_master_csv.write_text(
+        "\n".join(
+            [
+                "horse_id,horse_name,birth_date,sire_id,dam_id,damsire_id",
+                "horse-1,One,2022-03-01,sire-1,dam-1,damsire-1",
+                "horse-2,Two,2021-02-15,sire-2,dam-2,damsire-2",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    rating_history_csv.write_text(
+        "\n".join(
+            [
+                "horse_id,as_of,rating,source",
+                "horse-1,2026-05-07T09:00:00,72.0,official",
+                "horse-1,2026-05-08T09:55:00,99.0,leaky_after_feature_time",
+                "horse-2,2026-05-07T09:00:00,68.0,official",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    build_replay_dataset_from_staging(
+        staging_dir,
+        output_dir,
+        horse_master_csv=horse_master_csv,
+        rating_history_csv=rating_history_csv,
+    )
+
+    features = [
+        parse_feature_row(row) for row in read_csv_rows(output_dir / "features.csv")
+    ]
+    by_runner = {row.runner_id: row for row in features}
+    first = by_runner[RunnerId("2026050805010101-01")]
+    second = by_runner[RunnerId("2026050805010101-02")]
+
+    assert first.values[FeatureName("pedigree_sire_id")] == "sire:sire-1"
+    assert first.values[FeatureName("pedigree_dam_id")] == "dam:dam-1"
+    assert first.values[FeatureName("pedigree_damsire_id")] == "damsire:damsire-1"
+    assert first.values[FeatureName("horse_birth_year")] == 2022
+    assert first.values[FeatureName("horse_age_days_from_birth")] == 1529
+    assert first.values[FeatureName("horse_rating")] == 72.0
+    assert first.values[FeatureName("horse_rating_delta_to_field_mean")] == 2.0
+    assert first.values[FeatureName("horse_rating_rank_in_race")] == 1
+    assert first.values[FeatureName("horse_rating_source")] == "rating_source:official"
+    assert second.values[FeatureName("horse_rating_delta_to_field_mean")] == -2.0
+    assert second.values[FeatureName("horse_rating_rank_in_race")] == 2
+
+
 def test_build_replay_dataset_prefers_official_payouts_when_available(tmp_path):
     staging_dir = tmp_path / "staging"
     output_dir = tmp_path / "replay"
