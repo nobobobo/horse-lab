@@ -113,6 +113,7 @@ def parse_entry_row(row: Mapping[str, str]) -> Entry:
             key: value
             for key, value in {
                 "horse_name": parse_str_or_none(row.get("horse_name")),
+                "horse_symbol_code": parse_str_or_none(row.get("horse_symbol_code")),
                 "sex": parse_str_or_none(row.get("sex")),
                 "sex_code": parse_str_or_none(row.get("sex_code")),
                 "breed_code": parse_str_or_none(row.get("breed_code")),

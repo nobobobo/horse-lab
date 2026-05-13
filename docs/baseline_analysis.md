@@ -93,6 +93,36 @@ LightGBM v1 の feature importance では `entry_win_odds` が gain の 57.8% �
 
 新規 feature は `same_distance_top3_rate`、`same_venue_top3_rate`、`same_grade_top3_rate` が no-market で中位に入り、素材としては有効。一方で full model は market 周辺 feature の寄与が大きく、追加 feature をそのまま全部入れると calibration が悪化した。次は feature selection、regularization、segment-specific calibration、residual overlay の中で制御して使う。
 
+### Profile / Race Title Feature Rebuild
+
+2026-05-13 に、既存 `RACE` raw から取り出せる馬プロフィール・レースタイトル系 feature を追加して `jravan-replay-v5` を build した。
+
+- Dataset: `data/processed/jravan/daily_backfill_RACE_20250509_20260509_profile_features_v2/replay`
+- Feature version: `jravan-replay-v5`
+- QA artifact: `artifacts/data_quality/daily_backfill_RACE_20250509_20260509_profile_features_v2/report.json`
+- Races: `3283`
+- Feature rows: `45287`
+- Odds snapshots: `7054152`
+- Unique horses: `11631`
+- Feature count: `70`
+
+追加 feature:
+
+- Entry profile: `horse_symbol_code`、`breed_code`、`coat_color_code`、`trainer_affiliation_code`
+- Race title/class hints: `race_grade_group`、`race_title_type`、`race_has_title`
+
+実データの値分布を見ると、`horse_symbol_code`、`coat_color_code`、`trainer_affiliation_code` は分散があり、race title/grade 系も `ordinary`、`grade_code:E`、`graded`、`listed` などに分かれた。一方で `breed_code` は全行 `breed:1` だった。つまり、v5 は「今の raw から取れるプロフィール強化」としては有効だが、ユーザーが想定している sire/dam/damsire/grandparents の血統情報にはまだ届いていない。
+
+同じ split で LightGBM ablation を再実行した。
+
+| Scenario | Log loss | Brier | ECE | 読み方 |
+| --- | ---: | ---: | ---: | --- |
+| full | 0.20900 | 0.05814 | 0.00858 | market + v5 feature。旧 v2/v4 full より悪化 |
+| no_market | 0.22502 | 0.06118 | 0.00419 | profile feature により no-market は v2/v4 より改善 |
+| no_movement | 0.20856 | 0.05786 | 0.01076 | v5 では movement を抜いた方が最良 |
+
+Feature importance では `coat_color_code` が full で rank 33、no-market で rank 26 に入り、`horse_symbol_code`、`trainer_affiliation_code`、`race_title_type`、`race_grade_group` も小さいながら gain を持った。`breed_code` は gain 0。採用判断としては、v5 feature は dataset には残すが、full model の default 採用 feature にはせず、feature selection、residual overlay、pedigree master ingest 後の specialist model で使う。
+
 ## Phase 4 OOF / Stacking 準備
 
 OOF prediction は、各 validation fold の予測を、その fold を学習に使っていない Level 0 model だけで作る予測。meta learner が in-fold prediction を見て過学習するのを避けるため、stacking では必須の学習素材になる。

@@ -169,6 +169,10 @@ Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を
 - v4 LightGBM ablation では `no_market` が旧 v2 よりわずかに改善したが、`full` は旧 v2 より悪化。追加 feature は素材として残し、採用は feature selection / residual overlay / segment calibration 側で制御する。
 - 追加データ方針として、競馬場/回り/天候/grade/年齢/体重/性別/近走は既存 dataset から強化し、rating、pedigree、parents/grandparents、詳細通過順/上がり/着差は追加 ingest 対象にする。
 - Residual overlay study と segment-specific calibration study を追加。market を置き換えるのではなく、market の歪みを小さく補正できるかを walk-forward で検証する。
+- `jravan-replay-v5` を build。`horse_symbol_code`、`breed_code`、`coat_color_code`、`trainer_affiliation_code`、`race_grade_group`、`race_title_type`、`race_has_title` を追加した。
+- v5 QA は `races=3283`、`feature_rows=45287`、`odds_timeseries=7054152`、`unique_horses=11631`、`feature_count=70`、warnings なし。
+- v5 LightGBM ablation では `no_movement` が最良で log loss `0.20856`。`coat_color_code`、`horse_symbol_code`、`trainer_affiliation_code`、race title/grade 系は弱い信号を持つが、`breed_code` は今回 dataset では単一値のため効かなかった。
+- したがって pedigree / parents / grandparents は `SE` の品種コードでは足りず、馬 master または外部血統 master の ingest が必要。v5 は「既存 RACE から取れるプロフィール強化」の基準線として保持する。
 
 ## JRA-VAN / S3 運用方針
 

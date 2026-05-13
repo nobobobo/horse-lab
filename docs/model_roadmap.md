@@ -65,6 +65,8 @@
 
 2026-05-13 の `jravan-replay-v4` では identity-derived segment history feature を追加した。`no_market` LightGBM は旧 v2 より改善したが、`full` は悪化したため、これらの feature は market と混ぜる前に residual / overlay model 側で小さく使うのが第一候補。
 
+同日の `jravan-replay-v5` では `horse_symbol_code`、`coat_color_code`、`trainer_affiliation_code`、`race_grade_group`、`race_title_type` など既存 `RACE` raw から取れる profile/title feature を追加した。これらは一部 gain を持つが、full model の log loss は改善しなかったため、default model に無条件投入せず、feature selection と segment/residual model 側で扱う。
+
 ### 4. Track Bias / Pace Specialist
 
 目的: 開催日・競馬場・馬場・距離の一時的な偏りを捉える。
@@ -107,6 +109,12 @@
 - no-market model の log loss / Brier が改善。
 - market blend の alpha/weight が 0 より安定して大きい。
 - 新馬/若駒/距離延長/馬場替わりの segment で改善する。
+
+現状メモ:
+
+- `RACE/SE` の `breed_code` は現在の one-year dataset では全て `breed:1` で、pedigree signal としては使えない。
+- `horse_symbol_code` は分散があり、小さいながら model gain も出た。ただし血統そのものではない。
+- 血統 specialist を作るには、`horse_id` をキーにした馬 master / 血統 master の ingest を別途追加する必要がある。
 
 ### 6. Rating / Class Specialist
 
@@ -183,6 +191,11 @@
    - `horse_id` は直接 feature にせず、OOF horse stats、horse embedding、過去走集約のキーとして使う。
    - 既存 processed dataset は `entries.csv` 追加後に再 build する。
    - 初回 v4 rebuild は完了。same-venue / same-distance / same-grade 履歴は no-market signal としては有効だが、full model では calibration を悪化させたため、次は residual overlay と feature selection で扱う。
+
+7. **Profile/title feature selection**
+   - v5 rebuild は完了。`horse_symbol_code`、`coat_color_code`、`trainer_affiliation_code`、race title/grade 系は弱い signal を持つ。
+   - `breed_code` は今回 dataset では情報量がない。
+   - 次は full model に全部入れるのではなく、no-market/residual model での selected feature subset と regularization を比較する。
 
 ## 当面の採用ゲート
 

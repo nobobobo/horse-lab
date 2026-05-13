@@ -86,6 +86,7 @@ def _se_record(**overrides: str):
         "gate_number": "3",
         "horse_id": "2020123456",
         "horse_name": "テストホース",
+        "horse_symbol_code": "01",
         "sex_code": "2",
         "age": "04",
         "trainer_id": "04050",
@@ -168,6 +169,7 @@ def test_jravan_mapped_objects_round_trip_through_staging_csvs(tmp_path):
     assert parsed_entry.carried_weight_kg == 56.5
     assert parsed_entry.body_weight_diff_kg == -8
     assert parsed_entry.metadata["horse_name"] == "テストホース"
+    assert parsed_entry.metadata["horse_symbol_code"] == "01"
     assert parsed_entry.metadata["sex"] == "female"
     assert parsed_entry.metadata["entry_win_odds"] == 3.5
     assert parsed_entry.metadata["entry_popularity_rank"] == 2

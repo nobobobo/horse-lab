@@ -13,6 +13,8 @@ Raw `horse_id` should be kept for lineage and feature generation. It should not 
 
 `jravan-replay-v4` adds horse identity-derived segment features such as same-venue, same-distance, and same-grade rates. These use `horse_id` as the grouping key but do not expose raw `horse_id` to the model.
 
+`jravan-replay-v5` adds profile/title features that can be extracted from the existing `RACE` raw records: `breed_code`, `coat_color_code`, `trainer_affiliation_code`, `horse_symbol_code`, `race_grade_group`, `race_title_type`, and `race_has_title`. In the current one-year dataset, `horse_symbol_code`, `coat_color_code`, `trainer_affiliation_code`, and race title/grade features have useful variation. `breed_code` is all `breed:1`, so it is not a substitute for pedigree.
+
 From this phase onward, replay datasets should include `entries.csv` in addition to `features.csv`. `entries.csv` is the canonical `runner_id -> horse_id` map for diagnostics, lineage, and future feature rebuilds.
 
 Older processed datasets created before this change may not contain `entries.csv`. They can still be used for already-derived past-performance features, but should be rebuilt before identity diagnostics, horse-level OOF stats, pedigree joins, or horse embeddings are introduced.
@@ -31,8 +33,10 @@ Older processed datasets created before this change may not contain `entries.csv
 | Feature Group | Example Features | Source |
 | --- | --- | --- |
 | Entry details | `horse_number`, `gate_number`, `carried_weight_kg`, `body_weight_kg` | `RACE/SE` |
+| Horse profile codes | `breed_code`, `coat_color_code`, `trainer_affiliation_code`, `horse_symbol_code` | `RACE/SE` |
 | Horse identity | `horse_id` in `entries.csv` | `RACE/SE` |
 | Race conditions | `race_venue`, `race_surface`, `race_distance_m`, `race_track_condition` | `RACE/RA` |
+| Race title / class hints | `race_grade_group`, `race_title_type`, `race_has_title` | `RACE/RA` |
 | Market snapshot | `entry_win_odds`, `entry_popularity_rank` | `RACE/SE` |
 | Odds movement | `odds_open`, `odds_latest`, `odds_snapshot_count` | `0B41/O1` |
 | Pool | `pool_size_latest_jpy`, official pool rows | `0B41/O1`, `H1` |
@@ -60,12 +64,12 @@ The user-facing modeling idea maps into the data catalog as follows:
 | --- | --- | --- |
 | Venue, course direction, distance, surface | In `races.csv` / `features.csv` | Track suitability, bias, segment calibration |
 | Weather and track condition | In `races.csv` / `features.csv` when present | Going suitability, same-day bias |
-| Grade / race title such as G1/G2/G3 | Grade is present; named-title normalization is still thin | Class, campaign pattern, race-specific priors |
+| Grade / race title such as G1/G2/G3 | Code-level grouping and title type are in v5; exact grade/title taxonomy still needs a richer mapping | Class, campaign pattern, race-specific priors |
 | Age, sex, body weight, body-weight diff | In entry features when present | Growth curve, condition proxy |
 | Recent performance: last run / last two runs | Partially present via aggregated past-performance features | Form model and residual overlay |
 | Detailed passing order / final sectional / margins | Partially present in result schema; extraction coverage should be expanded | Pace and bias specialist |
 | Official rating / handicap rating | Not yet ingested | Independent ability prior, no-market model |
-| Breed / sire / dam / damsire / grandparents | Schema supports sire/dam/damsire lineage through `Horse`; replay features do not yet ingest pedigree master rows | Pedigree/suitability specialist, distance/surface aptitude |
+| Breed / sire / dam / damsire / grandparents | `breed_code` exists but is single-valued in the current dataset; sire/dam/damsire/grandparents still require master-data ingest | Pedigree/suitability specialist, distance/surface aptitude |
 | Training comments / paddock / text | Not yet ingested | Transformer/text specialist |
 
 Near-term priority is to add data that is both point-in-time safe and not already embedded in market odds: official rating, pedigree master, detailed past-performance lines, and same-day pace/bias features.

@@ -55,6 +55,10 @@ FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("carried_weight_kg"),
     FeatureName("age"),
     FeatureName("sex"),
+    FeatureName("horse_symbol_code"),
+    FeatureName("breed_code"),
+    FeatureName("coat_color_code"),
+    FeatureName("trainer_affiliation_code"),
     FeatureName("jockey_id"),
     FeatureName("trainer_id"),
     FeatureName("body_weight_kg"),
@@ -68,6 +72,9 @@ FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("race_track_condition"),
     FeatureName("race_weather"),
     FeatureName("race_grade"),
+    FeatureName("race_grade_group"),
+    FeatureName("race_title_type"),
+    FeatureName("race_has_title"),
     FeatureName("race_field_size"),
     FeatureName("starter"),
     FeatureName("odds_open"),
@@ -507,6 +514,26 @@ def _feature_row_from_entry(
             FeatureName("carried_weight_kg"): entry.carried_weight_kg,
             FeatureName("age"): entry.age,
             FeatureName("sex"): entry.metadata.get("sex"),
+            FeatureName("horse_symbol_code"): _prefixed_metadata_value(
+                entry,
+                "horse_symbol_code",
+                prefix="horse_symbol",
+            ),
+            FeatureName("breed_code"): _prefixed_metadata_value(
+                entry,
+                "breed_code",
+                prefix="breed",
+            ),
+            FeatureName("coat_color_code"): _prefixed_metadata_value(
+                entry,
+                "coat_color_code",
+                prefix="coat",
+            ),
+            FeatureName("trainer_affiliation_code"): _prefixed_metadata_value(
+                entry,
+                "trainer_affiliation_code",
+                prefix="trainer_affiliation",
+            ),
             FeatureName("jockey_id"): f"jockey:{entry.jockey_id}"
             if entry.jockey_id is not None
             else None,
@@ -526,6 +553,9 @@ def _feature_row_from_entry(
             FeatureName("race_track_condition"): race.track_condition.value,
             FeatureName("race_weather"): race.weather,
             FeatureName("race_grade"): race.grade,
+            FeatureName("race_grade_group"): _race_grade_group(race.grade),
+            FeatureName("race_title_type"): _race_title_type(race.name),
+            FeatureName("race_has_title"): bool(race.name),
             FeatureName("race_field_size"): race.field_size,
             FeatureName("starter"): True,
             **market_features,
@@ -569,6 +599,47 @@ def _render_feature_value(value: float | int | bool | str | None) -> str:
     if isinstance(value, bool):
         return str(value).lower()
     return str(value)
+
+
+def _prefixed_metadata_value(
+    entry: Entry,
+    key: str,
+    *,
+    prefix: str,
+) -> str | None:
+    value = entry.metadata.get(key)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+    return f"{prefix}:{normalized}"
+
+
+def _race_grade_group(grade: str | None) -> str:
+    if grade is None or not str(grade).strip():
+        return "ordinary"
+    grade_code = str(grade).strip()
+    if grade_code in {"A", "B", "C"}:
+        return "graded"
+    if grade_code == "L":
+        return "listed"
+    return f"grade_code:{grade_code}"
+
+
+def _race_title_type(name: str | None) -> str:
+    if name is None or not name.strip():
+        return "untitled"
+    normalized = name.strip()
+    if "ステークス" in normalized:
+        return "stakes"
+    if "カップ" in normalized:
+        return "cup"
+    if "特別" in normalized:
+        return "tokubetsu"
+    if "賞" in normalized:
+        return "sho"
+    return "named"
 
 
 def _market_movement_features(

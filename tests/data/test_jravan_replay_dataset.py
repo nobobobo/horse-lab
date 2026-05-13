@@ -64,6 +64,13 @@ def _entry(race_id: str, horse_number: int) -> Entry:
         carried_weight_kg=56.0 + horse_number,
         age=4,
         body_weight_kg=480 + horse_number,
+        metadata={
+            "sex": "male" if horse_number == 1 else "female",
+            "horse_symbol_code": "01",
+            "breed_code": "1",
+            "coat_color_code": "03",
+            "trainer_affiliation_code": "1",
+        },
     )
 
 
@@ -190,9 +197,19 @@ def test_build_replay_dataset_keeps_complete_races_and_latest_win_odds(tmp_path)
     assert len(features) == 2
     assert {row.feature_version for row in features} == {"fixture-replay-v1"}
     assert features[0].values[FeatureName("horse_number")] == 1
+    assert features[0].values[FeatureName("horse_symbol_code")] == "horse_symbol:01"
+    assert features[0].values[FeatureName("breed_code")] == "breed:1"
+    assert features[0].values[FeatureName("coat_color_code")] == "coat:03"
+    assert (
+        features[0].values[FeatureName("trainer_affiliation_code")]
+        == "trainer_affiliation:1"
+    )
     assert features[0].values[FeatureName("race_surface")] == "turf"
     assert features[0].values[FeatureName("race_distance_m")] == 1600
     assert features[0].values[FeatureName("race_field_size")] == 2
+    assert features[0].values[FeatureName("race_grade_group")] == "ordinary"
+    assert features[0].values[FeatureName("race_title_type")] == "named"
+    assert features[0].values[FeatureName("race_has_title")] is True
     assert features[0].values[FeatureName("past_run_count")] == 0
     assert features[0].values[FeatureName("starter")] is True
     assert {

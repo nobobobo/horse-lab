@@ -32,6 +32,7 @@ ENTRY_CSV_FIELDS: tuple[str, ...] = (
     "race_id",
     "horse_id",
     "horse_name",
+    "horse_symbol_code",
     "horse_number",
     "gate_number",
     "jockey_id",
@@ -108,6 +109,9 @@ def entry_to_csv_row(entry: Entry) -> dict[str, str]:
         "race_id": _render_csv_value(entry.race_id),
         "horse_id": _render_csv_value(entry.horse_id),
         "horse_name": _render_csv_value(entry.metadata.get("horse_name")),
+        "horse_symbol_code": _render_csv_value(
+            entry.metadata.get("horse_symbol_code")
+        ),
         "horse_number": _render_csv_value(entry.horse_number),
         "gate_number": _render_csv_value(entry.gate_number),
         "jockey_id": _render_csv_value(entry.jockey_id),
