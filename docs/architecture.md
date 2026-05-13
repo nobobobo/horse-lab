@@ -163,6 +163,10 @@ Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を
 - `stacking-market-calibration-study` を追加。market-implied probability に Platt-style calibration をかけ、walk-forward で market baseline と比較する。
 - 初回 study では ECE は改善したが log loss はほぼ同等で微悪化したため、採用判断は `keep_market_baseline`。
 - Windows 側に `Invoke-JvLinkAutomatedFetchToS3.ps1` を追加。`RACE` と `0B30/0B41/0B42` を S3-first で取る scheduled job の入口にする。
+- Windows Task Scheduler 用に `Register-JvLinkAutomatedFetchTask.ps1` を追加。短期 smoke はこれで回せるが、本番寄り運用は EventBridge Scheduler + SSM + EC2 start/stop を正本にする。
+- `jravan-replay-v4` を build。same-venue、same-distance、same-grade など、`horse_id` を grouping key にした identity-derived segment history features を追加した。
+- v4 QA は `races=3283`、`feature_rows=45287`、`odds_timeseries=7054152`、`unique_horses=11631`、`missing_horse_id=0`、`feature_count=63`。
+- v4 LightGBM ablation では `no_market` が旧 v2 よりわずかに改善したが、`full` は旧 v2 より悪化。追加 feature は素材として残し、採用は feature selection / residual overlay / segment calibration 側で制御する。
 
 ## JRA-VAN / S3 運用方針
 

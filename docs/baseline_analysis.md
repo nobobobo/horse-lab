@@ -69,6 +69,30 @@ LightGBM v1 の feature importance では `entry_win_odds` が gain の 57.8% �
 
 `full` の top gain は `entry_win_odds` が 50.8%。`no_market` では `jockey_past_win_rate`、`last_finish_position`、`top3_rate_last5` が上位に来る。つまり market 非依存の signal は存在するが、単体では market-implied を上回るほど強くない。Phase 4 では OOF prediction と calibration で、market と非 market model の残差を重ねる方向がよい。
 
+### Identity Feature Rebuild
+
+2026-05-13 に `entries.csv` を正本にした identity-aware replay を再 build し、同一馬の same-venue / same-distance / same-grade 履歴特徴量を追加した。
+
+- Dataset: `data/processed/jravan/daily_backfill_RACE_20250509_20260509_identity_features_v1/replay`
+- Feature version: `jravan-replay-v4`
+- QA artifact: `artifacts/data_quality/daily_backfill_RACE_20250509_20260509_identity_features_v1/report.json`
+- Races: `3283`
+- Feature rows: `45287`
+- Odds snapshots: `7054152`
+- Unique horses: `11631`
+- Missing `horse_id`: `0`
+- Feature count: `63`
+
+同じ split で LightGBM ablation を再実行した。
+
+| Scenario | Log loss | Brier | ECE | 読み方 |
+| --- | ---: | ---: | ---: | --- |
+| full | 0.20894 | 0.05811 | 0.01033 | market + v4 feature。旧 v2 full より小さく悪化 |
+| no_market | 0.22551 | 0.06118 | 0.00475 | 旧 v2 no-market より改善。identity-derived feature は market 抜きで少し効く |
+| no_movement | 0.21064 | 0.05866 | 0.01147 | movement を抜くと full より悪化 |
+
+新規 feature は `same_distance_top3_rate`、`same_venue_top3_rate`、`same_grade_top3_rate` が no-market で中位に入り、素材としては有効。一方で full model は market 周辺 feature の寄与が大きく、追加 feature をそのまま全部入れると calibration が悪化した。次は feature selection、regularization、segment-specific calibration、residual overlay の中で制御して使う。
+
 ## Phase 4 OOF / Stacking 準備
 
 OOF prediction は、各 validation fold の予測を、その fold を学習に使っていない Level 0 model だけで作る予測。meta learner が in-fold prediction を見て過学習するのを避けるため、stacking では必須の学習素材になる。

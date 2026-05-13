@@ -240,6 +240,11 @@ def test_past_performance_builder_aggregates_recent_runs():
     )
     assert values[FeatureName("same_surface_run_count")] == 3
     assert values[FeatureName("same_surface_win_rate")] == pytest.approx(0.0)
+    assert values[FeatureName("same_venue_run_count")] == 4
+    assert values[FeatureName("same_venue_win_rate")] == pytest.approx(1 / 4)
+    assert values[FeatureName("same_venue_top3_rate")] == pytest.approx(3 / 4)
+    assert values[FeatureName("same_venue_surface_run_count")] == 3
+    assert values[FeatureName("same_venue_surface_win_rate")] == pytest.approx(0.0)
     assert values[FeatureName("avg_odds_last3")] == pytest.approx(
         (3.0 + 9.0 + 5.0) / 3
     )
@@ -324,6 +329,15 @@ def test_past_performance_builder_adds_expanded_horse_and_person_features():
     )
     assert values[FeatureName("same_distance_run_count")] == 1
     assert values[FeatureName("same_distance_win_rate")] == pytest.approx(0.0)
+    assert values[FeatureName("same_distance_top3_rate")] == pytest.approx(1.0)
+    assert values[FeatureName("same_venue_run_count")] == 2
+    assert values[FeatureName("same_venue_win_rate")] == pytest.approx(0.5)
+    assert values[FeatureName("same_venue_top3_rate")] == pytest.approx(1.0)
+    assert values[FeatureName("same_venue_surface_run_count")] == 2
+    assert values[FeatureName("same_venue_surface_win_rate")] == pytest.approx(0.5)
+    assert values[FeatureName("same_grade_run_count")] == 0
+    assert values[FeatureName("same_grade_win_rate")] is None
+    assert values[FeatureName("same_grade_top3_rate")] is None
     assert values[FeatureName("distance_delta_from_last")] == 0
     assert values[FeatureName("last_race_distance_m")] == 1800
     assert values[FeatureName("last_race_surface")] == "turf"

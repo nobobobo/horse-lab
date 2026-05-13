@@ -31,6 +31,11 @@ WIN_RATE_LAST5 = FeatureName("win_rate_last5")
 AVG_DISTANCE_M_LAST3 = FeatureName("avg_distance_m_last3")
 SAME_SURFACE_RUN_COUNT = FeatureName("same_surface_run_count")
 SAME_SURFACE_WIN_RATE = FeatureName("same_surface_win_rate")
+SAME_VENUE_RUN_COUNT = FeatureName("same_venue_run_count")
+SAME_VENUE_WIN_RATE = FeatureName("same_venue_win_rate")
+SAME_VENUE_TOP3_RATE = FeatureName("same_venue_top3_rate")
+SAME_VENUE_SURFACE_RUN_COUNT = FeatureName("same_venue_surface_run_count")
+SAME_VENUE_SURFACE_WIN_RATE = FeatureName("same_venue_surface_win_rate")
 AVG_ODDS_LAST3 = FeatureName("avg_odds_last3")
 LAST_FINISH_POSITION = FeatureName("last_finish_position")
 LAST_ODDS = FeatureName("last_odds")
@@ -39,6 +44,10 @@ AVG_PRIZE_JPY_LAST3 = FeatureName("avg_prize_jpy_last3")
 AVG_FINAL_TIME_SECONDS_LAST3 = FeatureName("avg_final_time_seconds_last3")
 SAME_DISTANCE_RUN_COUNT = FeatureName("same_distance_run_count")
 SAME_DISTANCE_WIN_RATE = FeatureName("same_distance_win_rate")
+SAME_DISTANCE_TOP3_RATE = FeatureName("same_distance_top3_rate")
+SAME_GRADE_RUN_COUNT = FeatureName("same_grade_run_count")
+SAME_GRADE_WIN_RATE = FeatureName("same_grade_win_rate")
+SAME_GRADE_TOP3_RATE = FeatureName("same_grade_top3_rate")
 DISTANCE_DELTA_FROM_LAST = FeatureName("distance_delta_from_last")
 LAST_RACE_DISTANCE_M = FeatureName("last_race_distance_m")
 LAST_RACE_SURFACE = FeatureName("last_race_surface")
@@ -59,6 +68,11 @@ PAST_PERFORMANCE_FEATURE_NAMES: tuple[FeatureName, ...] = (
     AVG_DISTANCE_M_LAST3,
     SAME_SURFACE_RUN_COUNT,
     SAME_SURFACE_WIN_RATE,
+    SAME_VENUE_RUN_COUNT,
+    SAME_VENUE_WIN_RATE,
+    SAME_VENUE_TOP3_RATE,
+    SAME_VENUE_SURFACE_RUN_COUNT,
+    SAME_VENUE_SURFACE_WIN_RATE,
     AVG_ODDS_LAST3,
     LAST_FINISH_POSITION,
     LAST_ODDS,
@@ -67,6 +81,10 @@ PAST_PERFORMANCE_FEATURE_NAMES: tuple[FeatureName, ...] = (
     AVG_FINAL_TIME_SECONDS_LAST3,
     SAME_DISTANCE_RUN_COUNT,
     SAME_DISTANCE_WIN_RATE,
+    SAME_DISTANCE_TOP3_RATE,
+    SAME_GRADE_RUN_COUNT,
+    SAME_GRADE_WIN_RATE,
+    SAME_GRADE_TOP3_RATE,
     DISTANCE_DELTA_FROM_LAST,
     LAST_RACE_DISTANCE_M,
     LAST_RACE_SURFACE,
@@ -345,8 +363,17 @@ def _feature_values(
     same_surface = tuple(
         run for run in past_runs if run.race.surface == target_race.surface
     )
+    same_venue = tuple(run for run in past_runs if run.race.venue == target_race.venue)
+    same_venue_surface = tuple(
+        run for run in same_venue if run.race.surface == target_race.surface
+    )
     same_distance = tuple(
         run for run in past_runs if run.race.distance_m == target_race.distance_m
+    )
+    same_grade = tuple(
+        run
+        for run in past_runs
+        if target_race.grade is not None and run.race.grade == target_race.grade
     )
     finish_positions_last3 = tuple(
         run.result.finish_position
@@ -390,6 +417,11 @@ def _feature_values(
             if same_surface
             else None
         ),
+        SAME_VENUE_RUN_COUNT: len(same_venue),
+        SAME_VENUE_WIN_RATE: _past_win_rate(same_venue),
+        SAME_VENUE_TOP3_RATE: _past_top3_rate(same_venue),
+        SAME_VENUE_SURFACE_RUN_COUNT: len(same_venue_surface),
+        SAME_VENUE_SURFACE_WIN_RATE: _past_win_rate(same_venue_surface),
         AVG_ODDS_LAST3: mean(odds_last3) if odds_last3 else None,
         LAST_FINISH_POSITION: (
             last_run.result.finish_position if last_run is not None else None
@@ -416,6 +448,10 @@ def _feature_values(
             if same_distance
             else None
         ),
+        SAME_DISTANCE_TOP3_RATE: _past_top3_rate(same_distance),
+        SAME_GRADE_RUN_COUNT: len(same_grade),
+        SAME_GRADE_WIN_RATE: _past_win_rate(same_grade),
+        SAME_GRADE_TOP3_RATE: _past_top3_rate(same_grade),
         DISTANCE_DELTA_FROM_LAST: (
             target_race.distance_m - last_run.race.distance_m
             if last_run is not None
@@ -443,3 +479,23 @@ def _win_rate(results: Sequence[Result]) -> float | None:
     if not results:
         return None
     return sum(result.did_win for result in results) / len(results)
+
+
+def _past_win_rate(past_runs: Sequence[_PastRun]) -> float | None:
+    if not past_runs:
+        return None
+    return sum(run.result.did_win for run in past_runs) / len(past_runs)
+
+
+def _past_top3_rate(past_runs: Sequence[_PastRun]) -> float | None:
+    if not past_runs:
+        return None
+    return (
+        sum(
+            1
+            for run in past_runs
+            if run.result.finish_position is not None
+            and run.result.finish_position <= 3
+        )
+        / len(past_runs)
+    )

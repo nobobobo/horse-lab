@@ -63,6 +63,8 @@
 - Restrained blend より positive edge decision の質が改善。
 - Segment 別の過剰補正が出ない。
 
+2026-05-13 の `jravan-replay-v4` では identity-derived segment history feature を追加した。`no_market` LightGBM は旧 v2 より改善したが、`full` は悪化したため、これらの feature は market と混ぜる前に residual / overlay model 側で小さく使うのが第一候補。
+
 ### 4. Track Bias / Pace Specialist
 
 目的: 開催日・競馬場・馬場・距離の一時的な偏りを捉える。
@@ -142,6 +144,7 @@
    - replay dataset に出す `entries.csv` を正本にする。
    - `horse_id` は直接 feature にせず、OOF horse stats、horse embedding、過去走集約のキーとして使う。
    - 既存 processed dataset は `entries.csv` 追加後に再 build する。
+   - 初回 v4 rebuild は完了。same-venue / same-distance / same-grade 履歴は no-market signal としては有効だが、full model では calibration を悪化させたため、次は residual overlay と feature selection で扱う。
 
 ## 当面の採用ゲート
 

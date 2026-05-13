@@ -85,3 +85,23 @@ Recommended EventBridge/SSM shape:
 4. Stop the instance after the command finishes or after a fixed grace period.
 
 For non-race days or settlement-only runs, pass `-SkipRealtime` and fetch `RACE` only. For intraday odds accumulation windows, pass `-SkipDaily` and run only `0B30/0B41/0B42` with the current race-key file.
+
+## Windows Task Scheduler smoke operation
+
+Use `tools/windows/Register-JvLinkAutomatedFetchTask.ps1` when the Windows worker is intentionally kept running and a local daily scheduled task is enough. Production-like operation should still prefer EventBridge Scheduler + SSM + EC2 start/stop, but Task Scheduler is useful for smoke tests and short operational trials.
+
+Example:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File C:\horse-lab\scripts\Register-JvLinkAutomatedFetchTask.ps1 `
+  -TaskName HorseLab-JvLink-AutomatedFetch `
+  -ScriptPath C:\horse-lab\scripts\Invoke-JvLinkAutomatedFetchToS3.ps1 `
+  -RaceKeyFile C:\horse-lab\inputs\today_race_keys.txt `
+  -Bucket horse-lab-jravan-244306245597-apne1 `
+  -DailyDataSpecs RACE `
+  -RealtimeDataSpecs 0B30,0B41,0B42 `
+  -At 21:30 `
+  -WhatIf
+```
+
+Remove `-WhatIf` to register or replace the task. The wrapper uploads to S3 first and leaves local files only when the lower-level fetch scripts are called with keep-local options. For EC2 cost control, stop the instance after each collection window when the worker is not dumping data.

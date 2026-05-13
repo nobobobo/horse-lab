@@ -11,6 +11,8 @@ The model training table uses `race_id` + `runner_id` as the row key. Past-perfo
 
 Raw `horse_id` should be kept for lineage and feature generation. It should not be blindly fed as a high-cardinality categorical feature until we have a controlled OOF encoding or embedding, because it can overfit individual horses.
 
+`jravan-replay-v4` adds horse identity-derived segment features such as same-venue, same-distance, and same-grade rates. These use `horse_id` as the grouping key but do not expose raw `horse_id` to the model.
+
 From this phase onward, replay datasets should include `entries.csv` in addition to `features.csv`. `entries.csv` is the canonical `runner_id -> horse_id` map for diagnostics, lineage, and future feature rebuilds.
 
 Older processed datasets created before this change may not contain `entries.csv`. They can still be used for already-derived past-performance features, but should be rebuilt before identity diagnostics, horse-level OOF stats, pedigree joins, or horse embeddings are introduced.
@@ -35,6 +37,7 @@ Older processed datasets created before this change may not contain `entries.csv
 | Odds movement | `odds_open`, `odds_latest`, `odds_snapshot_count` | `0B41/O1` |
 | Pool | `pool_size_latest_jpy`, official pool rows | `0B41/O1`, `H1` |
 | Past performance | `past_run_count`, `last_finish_position`, `same_surface_win_rate` | Historical `RACE` joined by `horse_id` |
+| Identity-derived segment history | `same_venue_top3_rate`, `same_distance_top3_rate`, `same_grade_win_rate` | Historical `RACE` joined by `horse_id`, then filtered by target race condition |
 | Person stats | `jockey_past_win_rate`, `trainer_past_win_rate` | Historical `RACE` joined by jockey/trainer IDs |
 | Pair odds | pair-level `runner_id` such as `race-01_02` | `0B42/O2` |
 
