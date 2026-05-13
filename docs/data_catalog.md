@@ -52,6 +52,24 @@ High-priority additions:
 - Bloodline master data for pedigree/suitability models.
 - Training comments or other text data for transformer-style specialists.
 
+## Enrichment Backlog
+
+The user-facing modeling idea maps into the data catalog as follows:
+
+| Data | Current Status | Modeling Use |
+| --- | --- | --- |
+| Venue, course direction, distance, surface | In `races.csv` / `features.csv` | Track suitability, bias, segment calibration |
+| Weather and track condition | In `races.csv` / `features.csv` when present | Going suitability, same-day bias |
+| Grade / race title such as G1/G2/G3 | Grade is present; named-title normalization is still thin | Class, campaign pattern, race-specific priors |
+| Age, sex, body weight, body-weight diff | In entry features when present | Growth curve, condition proxy |
+| Recent performance: last run / last two runs | Partially present via aggregated past-performance features | Form model and residual overlay |
+| Detailed passing order / final sectional / margins | Partially present in result schema; extraction coverage should be expanded | Pace and bias specialist |
+| Official rating / handicap rating | Not yet ingested | Independent ability prior, no-market model |
+| Breed / sire / dam / damsire / grandparents | Schema supports sire/dam/damsire lineage through `Horse`; replay features do not yet ingest pedigree master rows | Pedigree/suitability specialist, distance/surface aptitude |
+| Training comments / paddock / text | Not yet ingested | Transformer/text specialist |
+
+Near-term priority is to add data that is both point-in-time safe and not already embedded in market odds: official rating, pedigree master, detailed past-performance lines, and same-day pace/bias features.
+
 ## Quality Gates
 
 Every production-like dataset should publish:

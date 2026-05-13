@@ -50,6 +50,20 @@ from horse_lab.stacking.prediction_store import (
     stored_prediction_to_csv_row,
     write_prediction_store_csv,
 )
+from horse_lab.stacking.residual_overlay import (
+    RESIDUAL_OVERLAY_PREDICTION_FIELDS,
+    ResidualOverlayStudyResult,
+    residual_overlay_study_result_to_dict,
+    run_residual_overlay_study,
+    run_residual_overlay_study_from_csv,
+)
+from horse_lab.stacking.segment_calibration import (
+    SEGMENT_CALIBRATION_PREDICTION_FIELDS,
+    SegmentCalibrationStudyResult,
+    run_segment_calibration_study,
+    run_segment_calibration_study_from_csv,
+    segment_calibration_study_result_to_dict,
+)
 
 __all__ = [
     "BlendSearchResult",
@@ -58,6 +72,8 @@ __all__ = [
     "META_DATASET_BASE_FIELDS",
     "META_PREDICTION_FIELDS",
     "OOF_PREDICTION_CSV_FIELDS",
+    "RESIDUAL_OVERLAY_PREDICTION_FIELDS",
+    "SEGMENT_CALIBRATION_PREDICTION_FIELDS",
     "SEGMENT_METRIC_FIELDS",
     "WALKFORWARD_PREDICTION_FIELDS",
     "LogisticMetaModel",
@@ -68,6 +84,8 @@ __all__ = [
     "MetaLearnerTrainingResult",
     "Phase4StudyResult",
     "PredictionRole",
+    "ResidualOverlayStudyResult",
+    "SegmentCalibrationStudyResult",
     "StoredPrediction",
     "build_meta_dataset",
     "build_meta_dataset_from_csv",
@@ -80,10 +98,16 @@ __all__ = [
     "read_meta_feature_rows",
     "read_prediction_store_csv",
     "phase4_study_result_to_dict",
+    "residual_overlay_study_result_to_dict",
+    "segment_calibration_study_result_to_dict",
     "run_phase4_study",
     "run_phase4_study_from_csv",
     "run_market_calibration_study",
     "run_market_calibration_study_from_csv",
+    "run_residual_overlay_study",
+    "run_residual_overlay_study_from_csv",
+    "run_segment_calibration_study",
+    "run_segment_calibration_study_from_csv",
     "search_convex_blend",
     "search_convex_blend_from_csv",
     "stored_prediction_to_csv_row",

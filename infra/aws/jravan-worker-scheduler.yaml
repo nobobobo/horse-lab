@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: EventBridge Scheduler resources for the Horse Lab JRA-VAN Windows worker.
+
+Parameters:
+  WindowsInstanceId:
+    Type: String
+    Description: EC2 instance id for the Windows JV-Link worker.
+  BucketName:
+    Type: String
+    Default: horse-lab-jravan-244306245597-apne1
+  RaceKeyFile:
+    Type: String
+    Default: C:/horse-lab/inputs/today_race_keys.txt
+  AutomatedFetchScriptPath:
+    Type: String
+    Default: C:/horse-lab/scripts/Invoke-JvLinkAutomatedFetchToS3.ps1
+  ScheduleTimezone:
+    Type: String
+    Default: Asia/Tokyo
+  StartScheduleExpression:
+    Type: String
+    Default: cron(15 21 * * ? *)
+  FetchScheduleExpression:
+    Type: String
+    Default: cron(30 21 * * ? *)
+  StopScheduleExpression:
+    Type: String
+    Default: cron(45 23 * * ? *)
+  ScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues:
+      - ENABLED
+      - DISABLED
+
+Resources:
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: HorseLabJvLinkSchedulerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${WindowsInstanceId}
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${WindowsInstanceId}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunPowerShellScript
+
+  ScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+    Properties:
+      Name: horse-lab-jravan
+
+  StartWindowsWorkerSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: horse-lab-jravan-start-worker
+      GroupName: !Ref ScheduleGroup
+      State: !Ref ScheduleState
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: !Ref StartScheduleExpression
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:startInstances
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub |
+          {
+            "InstanceIds": ["${WindowsInstanceId}"]
+          }
+
+  AutomatedFetchSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: horse-lab-jravan-automated-fetch
+      GroupName: !Ref ScheduleGroup
+      State: !Ref ScheduleState
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: !Ref FetchScheduleExpression
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ssm:sendCommand
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub |
+          {
+            "DocumentName": "AWS-RunPowerShellScript",
+            "InstanceIds": ["${WindowsInstanceId}"],
+            "Parameters": {
+              "commands": [
+                "powershell.exe -NoProfile -ExecutionPolicy Bypass -File '${AutomatedFetchScriptPath}' -DailyDataSpecs RACE -RealtimeDataSpecs 0B30,0B41,0B42 -RaceKeyFile '${RaceKeyFile}' -Bucket '${BucketName}' -DailyS3Prefix raw/jravan/daily -RealtimeS3Prefix raw/jravan/realtime"
+              ]
+            }
+          }
+
+  StopWindowsWorkerSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: horse-lab-jravan-stop-worker
+      GroupName: !Ref ScheduleGroup
+      State: !Ref ScheduleState
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: !Ref StopScheduleExpression
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub |
+          {
+            "InstanceIds": ["${WindowsInstanceId}"]
+          }
+
+Outputs:
+  ScheduleGroupName:
+    Value: !Ref ScheduleGroup
+  SchedulerRoleArn:
+    Value: !GetAtt SchedulerRole.Arn

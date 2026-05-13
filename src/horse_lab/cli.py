@@ -69,8 +69,12 @@ from horse_lab.stacking import (
     meta_learner_training_result_to_dict,
     market_calibration_study_result_to_dict,
     phase4_study_result_to_dict,
+    residual_overlay_study_result_to_dict,
+    segment_calibration_study_result_to_dict,
     run_phase4_study_from_csv,
     run_market_calibration_study_from_csv,
+    run_residual_overlay_study_from_csv,
+    run_segment_calibration_study_from_csv,
     search_convex_blend_from_csv,
     train_logistic_meta_learner_from_csv,
 )
@@ -475,6 +479,76 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_parser.add_argument("--max-iterations", type=int, default=2000)
     calibration_parser.add_argument("--l2", type=float, default=1e-3)
     calibration_parser.set_defaults(handler=_handle_stacking_market_calibration_study)
+
+    residual_overlay_parser = subparsers.add_parser(
+        "stacking-residual-overlay-study",
+        help="Run a walk-forward market-anchored residual overlay study.",
+    )
+    residual_overlay_parser.add_argument("meta_features_csv", type=Path)
+    residual_overlay_parser.add_argument("artifact_dir", type=Path)
+    residual_overlay_parser.add_argument(
+        "--market-column",
+        default=None,
+        help="Market prediction column. Defaults to inferred market column.",
+    )
+    residual_overlay_parser.add_argument(
+        "--overlay-column",
+        default=None,
+        help=(
+            "Prediction column used as the residual signal. Defaults to a "
+            "no-market column when present."
+        ),
+    )
+    residual_overlay_parser.add_argument("--min-train-folds", type=int, default=3)
+    residual_overlay_parser.add_argument("--alpha-min", type=float, default=-0.5)
+    residual_overlay_parser.add_argument("--alpha-max", type=float, default=0.5)
+    residual_overlay_parser.add_argument("--alpha-step", type=float, default=0.05)
+    residual_overlay_parser.add_argument(
+        "--model-version",
+        default="residual-overlay-v1",
+    )
+    residual_overlay_parser.set_defaults(handler=_handle_stacking_residual_overlay_study)
+
+    segment_calibration_parser = subparsers.add_parser(
+        "stacking-segment-calibration-study",
+        help="Run a walk-forward segment-specific market calibration study.",
+    )
+    segment_calibration_parser.add_argument("meta_features_csv", type=Path)
+    segment_calibration_parser.add_argument("artifact_dir", type=Path)
+    segment_calibration_parser.add_argument(
+        "--races-csv",
+        type=Path,
+        default=None,
+        help="Required for venue/surface/distance/field-size segment studies.",
+    )
+    segment_calibration_parser.add_argument("--market-column", default=None)
+    segment_calibration_parser.add_argument(
+        "--segment-name",
+        choices=[
+            "market_probability_band",
+            "venue",
+            "surface",
+            "distance_bucket",
+            "field_size_bucket",
+        ],
+        default="market_probability_band",
+    )
+    segment_calibration_parser.add_argument("--min-train-folds", type=int, default=3)
+    segment_calibration_parser.add_argument(
+        "--min-segment-train-rows",
+        type=int,
+        default=500,
+    )
+    segment_calibration_parser.add_argument(
+        "--model-version",
+        default="segment-calibration-v1",
+    )
+    segment_calibration_parser.add_argument("--learning-rate", type=float, default=0.05)
+    segment_calibration_parser.add_argument("--max-iterations", type=int, default=2000)
+    segment_calibration_parser.add_argument("--l2", type=float, default=1e-3)
+    segment_calibration_parser.set_defaults(
+        handler=_handle_stacking_segment_calibration_study,
+    )
 
     phase4_parser = subparsers.add_parser(
         "stacking-phase4-study",
@@ -980,6 +1054,42 @@ def _handle_stacking_market_calibration_study(
         l2=args.l2,
     )
     return market_calibration_study_result_to_dict(result)
+
+
+def _handle_stacking_residual_overlay_study(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    result = run_residual_overlay_study_from_csv(
+        args.meta_features_csv,
+        args.artifact_dir,
+        market_column=args.market_column,
+        overlay_column=args.overlay_column,
+        min_train_folds=args.min_train_folds,
+        alpha_min=args.alpha_min,
+        alpha_max=args.alpha_max,
+        alpha_step=args.alpha_step,
+        model_version=args.model_version,
+    )
+    return residual_overlay_study_result_to_dict(result)
+
+
+def _handle_stacking_segment_calibration_study(
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    result = run_segment_calibration_study_from_csv(
+        args.meta_features_csv,
+        args.artifact_dir,
+        races_csv=args.races_csv,
+        market_column=args.market_column,
+        segment_name=args.segment_name,
+        min_train_folds=args.min_train_folds,
+        min_segment_train_rows=args.min_segment_train_rows,
+        model_version=args.model_version,
+        learning_rate=args.learning_rate,
+        max_iterations=args.max_iterations,
+        l2=args.l2,
+    )
+    return segment_calibration_study_result_to_dict(result)
 
 
 def _handle_stacking_phase4_study(args: argparse.Namespace) -> dict[str, object]:

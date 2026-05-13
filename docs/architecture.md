@@ -167,6 +167,8 @@ Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を
 - `jravan-replay-v4` を build。same-venue、same-distance、same-grade など、`horse_id` を grouping key にした identity-derived segment history features を追加した。
 - v4 QA は `races=3283`、`feature_rows=45287`、`odds_timeseries=7054152`、`unique_horses=11631`、`missing_horse_id=0`、`feature_count=63`。
 - v4 LightGBM ablation では `no_market` が旧 v2 よりわずかに改善したが、`full` は旧 v2 より悪化。追加 feature は素材として残し、採用は feature selection / residual overlay / segment calibration 側で制御する。
+- 追加データ方針として、競馬場/回り/天候/grade/年齢/体重/性別/近走は既存 dataset から強化し、rating、pedigree、parents/grandparents、詳細通過順/上がり/着差は追加 ingest 対象にする。
+- Residual overlay study と segment-specific calibration study を追加。market を置き換えるのではなく、market の歪みを小さく補正できるかを walk-forward で検証する。
 
 ## JRA-VAN / S3 運用方針
 
@@ -196,6 +198,8 @@ horse-lab stacking-build-meta-dataset artifacts/oof/<run_id>/oof_predictions.csv
 horse-lab stacking-train-meta artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_meta/<run_id>
 horse-lab stacking-search-blend artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_blend/<run_id>
 horse-lab stacking-market-calibration-study artifacts/stacking/<run_id>/meta_features.csv artifacts/market_calibration/<run_id>
+horse-lab stacking-residual-overlay-study artifacts/stacking/<run_id>/meta_features.csv artifacts/residual_overlay/<run_id>
+horse-lab stacking-segment-calibration-study artifacts/stacking/<run_id>/meta_features.csv artifacts/segment_calibration/<run_id> --segment-name market_probability_band
 horse-lab stacking-phase4-study artifacts/stacking/<run_id>/meta_features.csv data/processed/jravan/<run_id>/replay/races.csv artifacts/phase4_study/<run_id>
 horse-lab model-registry-register-phase4 artifacts/phase4_study/<run_id>/phase4_study_report.json artifacts/model_registry/<candidate>/model_registry.json
 horse-lab paper-trading-run artifacts/phase4_study/<run_id>/walkforward_predictions.csv data/processed/jravan/<run_id>/replay artifacts/paper_trading/<candidate> --method convex_blend --as-of YYYY-MM-DDTHH:MM:SS

@@ -85,7 +85,45 @@
 - 当日後半 race の calibration / hit ranking が改善。
 - 同日 leakage がない。
 
-### 5. Pair Probability Model for 馬連
+### 5. Pedigree / Suitability Specialist
+
+目的: market odds や近走成績だけでは拾いにくい距離・馬場・成長曲線の適性を、血統と馬プロファイルから推定する。
+
+必要データ:
+
+- `horse_id` に紐づく sire、dam、damsire、可能なら grandparents。
+- 品種、性別、生年月日、馬齢、馬体重推移。
+- 父系/母系ごとの距離、馬場、成長時期、競馬場別成績。
+- G1/G2/G3 や条件戦など class/title 正規化。
+
+実装:
+
+- 初期は categorical / target-safe aggregate: sire surface win rate、damsire distance bucket top3 rate など。
+- raw `horse_id` や sire ID の直接暗記は避け、OOF stats または十分な regularization を使う。
+- 将来は sire/dam graph embedding を作り、tabular model の Level 0 に入れる。
+
+採用条件:
+
+- no-market model の log loss / Brier が改善。
+- market blend の alpha/weight が 0 より安定して大きい。
+- 新馬/若駒/距離延長/馬場替わりの segment で改善する。
+
+### 6. Rating / Class Specialist
+
+目的: 公式/外部レーティング、斤量、クラス、レースタイトルを使って能力差の prior を作る。
+
+必要データ:
+
+- 公式 rating または独自 Elo / speed figure。
+- Race title normalization: G1/G2/G3、Listed、OP、条件戦、未勝利、新馬など。
+- 過去走の class transition と着差、時計、上がり。
+
+実装:
+
+- rating delta within race、class up/down、斤量補正、speed figure trend を feature 化。
+- market odds を抜いた no-market / residual model の主特徴量にする。
+
+### 7. Pair Probability Model for 馬連
 
 目的: `0B42` と official payout を使い、馬連の pair-level probability を推定する。
 
@@ -101,7 +139,7 @@
 - market pair-implied baseline より log loss / Brier が改善。
 - 欠損 pair / 取消 / 発売停止の扱いが明示される。
 
-### 6. Trifecta / Trio Extension
+### 8. Trifecta / Trio Extension
 
 目的: 三連複・三連単 simulation の基盤を作る。
 

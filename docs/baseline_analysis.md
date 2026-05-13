@@ -264,6 +264,34 @@ Phase 5 + Phase 6 を aggregate した monitoring summary は `report_count=2`�
 
 Calibration は ECE を改善したが、log loss は `0.000001` だけ悪化した。採用判定は `keep_market_baseline`。これは悪い結果ではなく、market がすでにかなり well-calibrated であることを確認した形。次に calibration を使うなら、全体一律ではなく odds band / venue / surface / field size など segment-specific にする価値がある。
 
+### Residual Overlay / Segment Calibration
+
+2026-05-13 に market を anchor とし、非 market model を residual として小さく足す `stacking-residual-overlay-study` を追加した。
+
+- Artifact: `artifacts/residual_overlay/daily_backfill_RACE_20250509_20260509_with_payouts_v1_20251001_20260509/residual_overlay_report.json`
+- Market: `pred__market_implied_probability__market_implied_oof_v1`
+- Overlay: `pred__lightgbm_win_probability__lightgbm_no_market_oof_v1`
+- Holdout folds: `202601` から `202605`
+- Observations: `16173`
+
+| Method | Log loss | Brier |
+| --- | ---: | ---: |
+| Market baseline | 0.201385 | 0.056434 |
+| Residual overlay | 0.201385 | 0.056434 |
+| No-market overlay baseline | 0.225390 | 0.061106 |
+
+全 fold で selected alpha は `0.0`。つまり、現時点の no-market signal は全体へ一律に足すより、market をそのまま使う方がよい。
+
+Segment-specific calibration も追加し、market probability band と venue 別に検証した。
+
+| Calibration | Log loss | Brier | ECE | 判定 |
+| --- | ---: | ---: | ---: | --- |
+| Market baseline | 0.201385 | 0.056434 | 0.003510 | baseline |
+| Odds band calibration | 0.201412 | 0.056452 | 0.002727 | ECE は改善、log loss は悪化 |
+| Venue calibration | 0.201452 | 0.056414 | 0.003204 | Brier/ECE は改善、log loss は悪化 |
+
+結論として、calibration 系は monitoring/diagnostics として有用だが、現時点では prediction candidate として market baseline を置き換えない。次の改善余地は、market と相関しにくい追加データ、具体的には pedigree、official rating、詳細過去走、pace/track-bias にある。
+
 ## 馬連 Simulation
 
 `0B42` のローカル smoke data と `HR` official payout を使い、馬連 favorite strategy の settlement を確認した。

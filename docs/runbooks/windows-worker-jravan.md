@@ -86,6 +86,29 @@ Recommended EventBridge/SSM shape:
 
 For non-race days or settlement-only runs, pass `-SkipRealtime` and fetch `RACE` only. For intraday odds accumulation windows, pass `-SkipDaily` and run only `0B30/0B41/0B42` with the current race-key file.
 
+## EventBridge Scheduler setup
+
+As of 2026-05-13, no EventBridge Scheduler schedules or legacy EventBridge rules are registered for Horse Lab in `ap-northeast-1`. The repo now includes a disabled-by-default CloudFormation template:
+
+```bash
+aws cloudformation deploy \
+  --region ap-northeast-1 \
+  --stack-name horse-lab-jravan-worker-scheduler \
+  --template-file infra/aws/jravan-worker-scheduler.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides \
+    WindowsInstanceId=i-01d133bbc306d3f11 \
+    ScheduleState=DISABLED
+```
+
+The template creates three schedules:
+
+- `horse-lab-jravan-start-worker`: starts the Windows worker.
+- `horse-lab-jravan-automated-fetch`: runs `Invoke-JvLinkAutomatedFetchToS3.ps1` through SSM.
+- `horse-lab-jravan-stop-worker`: stops the worker after the collection window.
+
+Keep `ScheduleState=DISABLED` for the first deploy, verify the generated schedules and IAM role, then switch to `ENABLED` when collection windows are agreed. This prevents surprise EC2 runtime cost while preserving a reproducible production-like setup.
+
 ## Windows Task Scheduler smoke operation
 
 Use `tools/windows/Register-JvLinkAutomatedFetchTask.ps1` when the Windows worker is intentionally kept running and a local daily scheduled task is enough. Production-like operation should still prefer EventBridge Scheduler + SSM + EC2 start/stop, but Task Scheduler is useful for smoke tests and short operational trials.
