@@ -5,6 +5,7 @@ from horse_lab.pipelines.lightgbm_training import (
     LightGBMTrainingResult,
     lightgbm_training_result_to_dict,
     run_lightgbm_ablation_from_csv,
+    run_lightgbm_feature_set_study_from_csv,
     run_lightgbm_training,
     run_lightgbm_training_from_csv,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "paper_trading_result_to_dict",
     "run_daily_paper_trading_from_csv",
     "run_lightgbm_ablation_from_csv",
+    "run_lightgbm_feature_set_study_from_csv",
     "run_level0_oof",
     "run_level0_oof_from_csv",
     "run_lightgbm_training",

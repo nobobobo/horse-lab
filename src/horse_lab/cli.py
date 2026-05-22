@@ -58,6 +58,7 @@ from horse_lab.pipelines import (
     run_daily_paper_trading_from_csv,
     run_level0_oof_from_csv,
     run_lightgbm_ablation_from_csv,
+    run_lightgbm_feature_set_study_from_csv,
     run_lightgbm_training_from_csv,
     run_market_replay,
     run_paper_trading_from_csv,
@@ -333,8 +334,17 @@ def build_parser() -> argparse.ArgumentParser:
     lightgbm_parser.add_argument(
         "--exclude-feature",
         action="append",
-        default=(),
+        default=None,
         help="Feature name to exclude from training. Can be supplied multiple times.",
+    )
+    lightgbm_parser.add_argument(
+        "--include-feature",
+        action="append",
+        default=None,
+        help=(
+            "Feature name whitelist for training. Can be supplied multiple times. "
+            "When omitted, all features are eligible."
+        ),
     )
     lightgbm_parser.set_defaults(handler=_handle_lightgbm_train)
 
@@ -371,6 +381,48 @@ def build_parser() -> argparse.ArgumentParser:
     lightgbm_ablation_parser.add_argument("--random-seed", type=int, default=42)
     lightgbm_ablation_parser.add_argument("--model-version", default="lightgbm-win-v1")
     lightgbm_ablation_parser.set_defaults(handler=_handle_lightgbm_ablation)
+
+    lightgbm_feature_set_parser = subparsers.add_parser(
+        "lightgbm-feature-set-study",
+        help=(
+            "Run full/market-only/no-market-selected feature-set studies for "
+            "specialist model planning."
+        ),
+    )
+    lightgbm_feature_set_parser.add_argument("dataset_dir", type=Path)
+    lightgbm_feature_set_parser.add_argument("artifact_dir", type=Path)
+    lightgbm_feature_set_parser.add_argument(
+        "--train-end-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_feature_set_parser.add_argument(
+        "--valid-start-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_feature_set_parser.add_argument(
+        "--valid-end-date",
+        type=_parse_cli_date,
+        required=True,
+    )
+    lightgbm_feature_set_parser.add_argument(
+        "--as-of",
+        type=_parse_cli_datetime,
+        required=True,
+    )
+    lightgbm_feature_set_parser.add_argument(
+        "--feature-version",
+        default=DEFAULT_REPLAY_FEATURE_VERSION,
+    )
+    lightgbm_feature_set_parser.add_argument("--random-seed", type=int, default=42)
+    lightgbm_feature_set_parser.add_argument(
+        "--model-version",
+        default="lightgbm-win-v1",
+    )
+    lightgbm_feature_set_parser.set_defaults(
+        handler=_handle_lightgbm_feature_set_study
+    )
 
     oof_parser = subparsers.add_parser(
         "level0-oof",
@@ -982,7 +1034,8 @@ def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:
         feature_version=args.feature_version,
         random_seed=args.random_seed,
         model_version=args.model_version,
-        exclude_feature_names=args.exclude_feature,
+        include_feature_names=args.include_feature,
+        exclude_feature_names=args.exclude_feature or (),
     )
     summary = lightgbm_training_result_to_dict(result)
     summary["dataset_dir"] = str(args.dataset_dir)
@@ -998,6 +1051,20 @@ def _handle_lightgbm_train(args: argparse.Namespace) -> dict[str, object]:
 
 def _handle_lightgbm_ablation(args: argparse.Namespace) -> dict[str, object]:
     return run_lightgbm_ablation_from_csv(
+        args.dataset_dir,
+        args.artifact_dir,
+        train_end_date=args.train_end_date,
+        valid_start_date=args.valid_start_date,
+        valid_end_date=args.valid_end_date,
+        as_of=args.as_of,
+        feature_version=args.feature_version,
+        random_seed=args.random_seed,
+        model_version=args.model_version,
+    )
+
+
+def _handle_lightgbm_feature_set_study(args: argparse.Namespace) -> dict[str, object]:
+    return run_lightgbm_feature_set_study_from_csv(
         args.dataset_dir,
         args.artifact_dir,
         train_end_date=args.train_end_date,

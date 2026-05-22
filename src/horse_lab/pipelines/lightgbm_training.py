@@ -25,6 +25,7 @@ from horse_lab.evaluation import (
     ProbabilitySummary,
     summarize_win_probability_predictions,
 )
+from horse_lab.features import PAST_PERFORMANCE_FEATURE_NAMES
 from horse_lab.models import (
     InferenceContext,
     LightGBMWinProbabilityModel,
@@ -64,6 +65,12 @@ class LightGBMTrainingResult:
     feature_importances: tuple[dict[str, Any], ...]
 
 
+@dataclass(frozen=True)
+class LightGBMFeatureSetScenario:
+    include_feature_names: tuple[FeatureName, ...] | None = None
+    exclude_feature_names: tuple[FeatureName, ...] = ()
+
+
 MARKET_FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("entry_win_odds"),
     FeatureName("entry_popularity_rank"),
@@ -78,6 +85,60 @@ MARKET_FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("last_odds"),
     FeatureName("avg_odds_last3"),
 )
+
+ENTRY_PROFILE_FEATURE_NAMES: tuple[FeatureName, ...] = (
+    FeatureName("horse_number"),
+    FeatureName("gate_number"),
+    FeatureName("carried_weight_kg"),
+    FeatureName("age"),
+    FeatureName("sex"),
+    FeatureName("horse_symbol_code"),
+    FeatureName("breed_code"),
+    FeatureName("coat_color_code"),
+    FeatureName("trainer_affiliation_code"),
+    FeatureName("body_weight_kg"),
+    FeatureName("body_weight_diff_kg"),
+)
+
+RACE_CONDITION_FEATURE_NAMES: tuple[FeatureName, ...] = (
+    FeatureName("race_venue"),
+    FeatureName("race_surface"),
+    FeatureName("race_distance_m"),
+    FeatureName("race_direction"),
+    FeatureName("race_track_condition"),
+    FeatureName("race_weather"),
+    FeatureName("race_grade"),
+    FeatureName("race_grade_group"),
+    FeatureName("race_title_type"),
+    FeatureName("race_has_title"),
+    FeatureName("race_field_size"),
+)
+
+PEDIGREE_RATING_FEATURE_NAMES: tuple[FeatureName, ...] = (
+    FeatureName("pedigree_sire_id"),
+    FeatureName("pedigree_dam_id"),
+    FeatureName("pedigree_damsire_id"),
+    FeatureName("horse_birth_year"),
+    FeatureName("horse_age_days_from_birth"),
+    FeatureName("horse_rating"),
+    FeatureName("horse_rating_delta_to_field_mean"),
+    FeatureName("horse_rating_rank_in_race"),
+    FeatureName("horse_rating_source"),
+)
+
+PERSON_ID_FEATURE_NAMES: tuple[FeatureName, ...] = (
+    FeatureName("jockey_id"),
+    FeatureName("trainer_id"),
+)
+
+CORE_FORM_FEATURE_NAMES: tuple[FeatureName, ...] = tuple(
+    name for name in PAST_PERFORMANCE_FEATURE_NAMES if name not in MARKET_FEATURE_NAMES
+)
+
+
+def _unique_feature_names(feature_names: Sequence[FeatureName]) -> tuple[FeatureName, ...]:
+    return tuple(sorted(set(feature_names), key=str))
+
 
 ODDS_MOVEMENT_FEATURE_NAMES: tuple[FeatureName, ...] = (
     FeatureName("odds_open"),
@@ -96,6 +157,34 @@ DEFAULT_LIGHTGBM_ABLATION_SCENARIOS: dict[str, tuple[FeatureName, ...]] = {
     "no_movement": ODDS_MOVEMENT_FEATURE_NAMES,
 }
 
+DEFAULT_LIGHTGBM_FEATURE_SET_SCENARIOS: dict[str, LightGBMFeatureSetScenario] = {
+    "full": LightGBMFeatureSetScenario(),
+    "market_only": LightGBMFeatureSetScenario(
+        include_feature_names=MARKET_FEATURE_NAMES,
+    ),
+    "no_market_selected": LightGBMFeatureSetScenario(
+        include_feature_names=_unique_feature_names(
+            (
+                *ENTRY_PROFILE_FEATURE_NAMES,
+                *RACE_CONDITION_FEATURE_NAMES,
+                *PERSON_ID_FEATURE_NAMES,
+                *CORE_FORM_FEATURE_NAMES,
+            )
+        ),
+    ),
+    "profile_pedigree_rating": LightGBMFeatureSetScenario(
+        include_feature_names=_unique_feature_names(
+            (
+                *ENTRY_PROFILE_FEATURE_NAMES,
+                *RACE_CONDITION_FEATURE_NAMES,
+                *PERSON_ID_FEATURE_NAMES,
+                *CORE_FORM_FEATURE_NAMES,
+                *PEDIGREE_RATING_FEATURE_NAMES,
+            )
+        ),
+    ),
+}
+
 
 def run_lightgbm_training_from_csv(
     dataset_dir: Path | str,
@@ -109,6 +198,7 @@ def run_lightgbm_training_from_csv(
     random_seed: int = 42,
     model_version: str = "lightgbm-win-v1",
     estimator_factory: EstimatorFactory | None = None,
+    include_feature_names: Sequence[str | FeatureName] | None = None,
     exclude_feature_names: Sequence[str | FeatureName] = (),
 ) -> LightGBMTrainingResult:
     """Train and validate the LightGBM baseline from replay-ready CSV files."""
@@ -128,6 +218,7 @@ def run_lightgbm_training_from_csv(
         random_seed=random_seed,
         model_version=model_version,
         estimator_factory=estimator_factory,
+        include_feature_names=include_feature_names,
         exclude_feature_names=exclude_feature_names,
     )
 
@@ -192,6 +283,77 @@ def run_lightgbm_ablation_from_csv(
     return aggregate
 
 
+def run_lightgbm_feature_set_study_from_csv(
+    dataset_dir: Path | str,
+    artifact_dir: Path | str,
+    *,
+    train_end_date: date,
+    valid_start_date: date,
+    valid_end_date: date,
+    as_of: datetime,
+    feature_version: str,
+    random_seed: int = 42,
+    model_version: str = "lightgbm-win-v1",
+    scenarios: Mapping[str, LightGBMFeatureSetScenario] | None = None,
+    estimator_factory: EstimatorFactory | None = None,
+) -> dict[str, Any]:
+    """Run named include/exclude feature-set studies for specialist models."""
+
+    selected_scenarios = scenarios or DEFAULT_LIGHTGBM_FEATURE_SET_SCENARIOS
+    artifact_path = Path(artifact_dir)
+    scenario_summaries: dict[str, Any] = {}
+    for scenario_name, scenario in selected_scenarios.items():
+        result = run_lightgbm_training_from_csv(
+            dataset_dir,
+            artifact_path / scenario_name,
+            train_end_date=train_end_date,
+            valid_start_date=valid_start_date,
+            valid_end_date=valid_end_date,
+            as_of=as_of,
+            feature_version=feature_version,
+            random_seed=random_seed,
+            model_version=f"{model_version}-{scenario_name}",
+            estimator_factory=estimator_factory,
+            include_feature_names=scenario.include_feature_names,
+            exclude_feature_names=scenario.exclude_feature_names,
+        )
+        summary = lightgbm_training_result_to_dict(result)
+        summary["included_feature_names"] = (
+            [
+                str(name)
+                for name in _normalize_optional_feature_names(
+                    scenario.include_feature_names
+                )
+            ]
+            if scenario.include_feature_names is not None
+            else None
+        )
+        summary["excluded_feature_names"] = [
+            str(name) for name in _normalize_feature_names(scenario.exclude_feature_names)
+        ]
+        scenario_summaries[scenario_name] = summary
+
+    best_by_log_loss = min(
+        scenario_summaries,
+        key=lambda name: scenario_summaries[name]["probability"]["log_loss"],
+    )
+    aggregate = {
+        "dataset_dir": str(dataset_dir),
+        "artifact_dir": str(artifact_path),
+        "split": {
+            "train_end_date": train_end_date.isoformat(),
+            "valid_start_date": valid_start_date.isoformat(),
+            "valid_end_date": valid_end_date.isoformat(),
+            "as_of": as_of.isoformat(),
+        },
+        "feature_version": feature_version,
+        "scenarios": scenario_summaries,
+        "best_by_log_loss": best_by_log_loss,
+    }
+    _write_json_file(artifact_path / "feature_set_study_summary.json", aggregate)
+    return aggregate
+
+
 def _replay_odds_csv_path(dataset_path: Path) -> Path:
     odds_timeseries_path = dataset_path / "odds_timeseries.csv"
     if odds_timeseries_path.exists():
@@ -214,6 +376,7 @@ def run_lightgbm_training(
     random_seed: int = 42,
     model_version: str = "lightgbm-win-v1",
     estimator_factory: EstimatorFactory | None = None,
+    include_feature_names: Sequence[str | FeatureName] | None = None,
     exclude_feature_names: Sequence[str | FeatureName] = (),
 ) -> LightGBMTrainingResult:
     """Train on races up to ``train_end_date`` and validate on a later window."""
@@ -277,13 +440,17 @@ def run_lightgbm_training(
         label="validation",
     )
 
+    included = _normalize_optional_feature_names(include_feature_names)
     excluded = _normalize_feature_names(exclude_feature_names)
-    if excluded:
-        train_feature_rows = _filter_feature_rows(train_feature_rows, excluded)
-        validation_feature_rows = _filter_feature_rows(
+    if included is not None:
+        train_feature_rows = _include_feature_rows(train_feature_rows, included)
+        validation_feature_rows = _include_feature_rows(
             validation_feature_rows,
-            excluded,
+            included,
         )
+    if excluded:
+        train_feature_rows = _exclude_feature_rows(train_feature_rows, excluded)
+        validation_feature_rows = _exclude_feature_rows(validation_feature_rows, excluded)
 
     training_dataset = TrainingDataset(
         feature_rows=train_feature_rows,
@@ -355,6 +522,10 @@ def lightgbm_training_result_to_dict(
 ) -> dict[str, Any]:
     """Serialize a training result for CLI output and artifact reports."""
 
+    metadata = _jsonable_mapping(result.model_artifact.metadata)
+    numeric_feature_count = len(metadata.get("numeric_features", ()))
+    categorical_feature_count = len(metadata.get("categorical_features", ()))
+
     return {
         "artifact": {
             "model_name": str(result.model_artifact.model_name),
@@ -365,7 +536,7 @@ def lightgbm_training_result_to_dict(
             "model_path": str(result.model_path),
             "summary_path": str(result.summary_path),
             "feature_importance_path": str(result.feature_importance_path),
-            "metadata": _jsonable_mapping(result.model_artifact.metadata),
+            "metadata": metadata,
         },
         "counts": {
             "train_races": len(result.train_races),
@@ -376,6 +547,9 @@ def lightgbm_training_result_to_dict(
             "validation_results": len(result.validation_results),
             "validation_odds": len(result.validation_odds),
             "predictions": len(result.predictions),
+            "model_features": numeric_feature_count + categorical_feature_count,
+            "numeric_features": numeric_feature_count,
+            "categorical_features": categorical_feature_count,
         },
         "probability": _probability_summary_to_dict(result.probability_summary),
         "feature_importances": [
@@ -437,7 +611,37 @@ def _normalize_feature_names(
     return tuple(sorted({FeatureName(str(name)) for name in feature_names}, key=str))
 
 
-def _filter_feature_rows(
+def _normalize_optional_feature_names(
+    feature_names: Sequence[str | FeatureName] | None,
+) -> tuple[FeatureName, ...] | None:
+    if feature_names is None:
+        return None
+    return _normalize_feature_names(feature_names)
+
+
+def _include_feature_rows(
+    feature_rows: tuple[FeatureRow, ...],
+    included_feature_names: Sequence[FeatureName],
+) -> tuple[FeatureRow, ...]:
+    included = set(included_feature_names)
+    return tuple(
+        FeatureRow(
+            race_id=row.race_id,
+            runner_id=row.runner_id,
+            as_of=row.as_of,
+            feature_version=row.feature_version,
+            values={
+                feature_name: value
+                for feature_name, value in row.values.items()
+                if feature_name in included
+            },
+            metadata=row.metadata,
+        )
+        for row in feature_rows
+    )
+
+
+def _exclude_feature_rows(
     feature_rows: tuple[FeatureRow, ...],
     excluded_feature_names: Sequence[FeatureName],
 ) -> tuple[FeatureRow, ...]:

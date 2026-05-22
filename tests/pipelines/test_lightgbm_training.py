@@ -143,6 +143,28 @@ def test_lightgbm_training_pipeline_can_exclude_features(tmp_path):
     }
 
 
+def test_lightgbm_training_pipeline_can_include_feature_subset(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    artifact_dir = tmp_path / "artifacts"
+    _write_replay_dataset(dataset_dir)
+    fake = FakeEstimator(probabilities=[0.8, 0.2])
+
+    result = run_lightgbm_training_from_csv(
+        dataset_dir,
+        artifact_dir,
+        train_end_date=dt.date(2026, 5, 7),
+        valid_start_date=dt.date(2026, 5, 8),
+        valid_end_date=dt.date(2026, 5, 8),
+        as_of=dt.datetime(2026, 5, 8, 23, 59),
+        feature_version="fixture-v1",
+        estimator_factory=lambda random_seed: fake,
+        include_feature_names=("speed",),
+    )
+
+    assert fake.fit_x == [[70.0], [65.0]]
+    assert [row["feature_name"] for row in result.feature_importances] == ["speed"]
+
+
 def test_lightgbm_ablation_pipeline_writes_aggregate_summary(tmp_path):
     dataset_dir = tmp_path / "dataset"
     artifact_dir = tmp_path / "ablation"
@@ -163,6 +185,54 @@ def test_lightgbm_ablation_pipeline_writes_aggregate_summary(tmp_path):
     assert set(summary["scenarios"]) == {"full", "no_gate"}
     assert summary["scenarios"]["no_gate"]["excluded_feature_names"] == ["gate"]
     assert (artifact_dir / "ablation_summary.json").exists()
+
+
+def test_lightgbm_feature_set_study_writes_aggregate_summary(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    artifact_dir = tmp_path / "feature_sets"
+    _write_replay_dataset(dataset_dir)
+
+    summary = run_lightgbm_ablation_from_csv(
+        dataset_dir,
+        tmp_path / "ablation_for_control",
+        train_end_date=dt.date(2026, 5, 7),
+        valid_start_date=dt.date(2026, 5, 8),
+        valid_end_date=dt.date(2026, 5, 8),
+        as_of=dt.datetime(2026, 5, 8, 23, 59),
+        feature_version="fixture-v1",
+        scenarios={"full": ()},
+        estimator_factory=lambda random_seed: FakeEstimator(probabilities=[0.8, 0.2]),
+    )
+    assert summary["best_by_log_loss"] == "full"
+
+    from horse_lab.pipelines.lightgbm_training import (
+        LightGBMFeatureSetScenario,
+        run_lightgbm_feature_set_study_from_csv,
+    )
+
+    feature_summary = run_lightgbm_feature_set_study_from_csv(
+        dataset_dir,
+        artifact_dir,
+        train_end_date=dt.date(2026, 5, 7),
+        valid_start_date=dt.date(2026, 5, 8),
+        valid_end_date=dt.date(2026, 5, 8),
+        as_of=dt.datetime(2026, 5, 8, 23, 59),
+        feature_version="fixture-v1",
+        scenarios={
+            "speed_only": LightGBMFeatureSetScenario(
+                include_feature_names=("speed",)
+            ),
+            "no_gate": LightGBMFeatureSetScenario(exclude_feature_names=("gate",)),
+        },
+        estimator_factory=lambda random_seed: FakeEstimator(probabilities=[0.8, 0.2]),
+    )
+
+    assert set(feature_summary["scenarios"]) == {"speed_only", "no_gate"}
+    assert feature_summary["scenarios"]["speed_only"]["included_feature_names"] == [
+        "speed"
+    ]
+    assert feature_summary["scenarios"]["no_gate"]["excluded_feature_names"] == ["gate"]
+    assert (artifact_dir / "feature_set_study_summary.json").exists()
 
 
 def test_lightgbm_training_pipeline_rejects_overlapping_split(tmp_path):

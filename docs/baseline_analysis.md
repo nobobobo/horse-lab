@@ -123,6 +123,23 @@ LightGBM v1 の feature importance では `entry_win_odds` が gain の 57.8% �
 
 Feature importance では `coat_color_code` が full で rank 33、no-market で rank 26 に入り、`horse_symbol_code`、`trainer_affiliation_code`、`race_title_type`、`race_grade_group` も小さいながら gain を持った。`breed_code` は gain 0。採用判断としては、v5 feature は dataset には残すが、full model の default 採用 feature にはせず、feature selection、residual overlay、pedigree master ingest 後の specialist model で使う。
 
+### Feature-set Study
+
+2026-05-22 に、`jravan-replay-v5` で LightGBM feature-set study を追加し、同じ split で `full`、`market_only`、`no_market_selected`、`profile_pedigree_rating` を比較した。
+
+- Dataset: `data/processed/jravan/daily_backfill_RACE_20250509_20260509_profile_features_v2/replay`
+- Artifact: `artifacts/lightgbm_feature_sets/daily_backfill_RACE_20250509_20260509_profile_features_v2/feature_set_study_summary.json`
+- Validation: 2026-03-01 から 2026-05-03
+
+| Scenario | Features | Log loss | Brier | ECE | 読み方 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| full | 70 | 0.20900 | 0.05814 | 0.00858 | 全 feature。v5 では market 周辺の歪みを拾い切れていない |
+| market_only | 12 | 0.20827 | 0.05784 | 0.00953 | 今回の最良。market feature だけで full より良い |
+| no_market_selected | 57 | 0.22502 | 0.06118 | 0.00419 | 非 market signal は calibration は静かだが予測力不足 |
+| profile_pedigree_rating | 57 | 0.22502 | 0.06118 | 0.00419 | v5 では外部 pedigree/rating が未 join のため no-market と同等 |
+
+結論として、現時点では `market_only` が probability baseline として最も強い。`profile_pedigree_rating` が改善しなかったのは、sire/dam/damsire や point-in-time rating の実データがまだこの v5 dataset に入っていないため。次の採用ゲートは、外部 horse master / rating history を合流した v6 dataset で `profile_pedigree_rating` が `no_market_selected` を上回るか、または residual overlay で market のごく小さい補正として効くかを見る。
+
 ## Phase 4 OOF / Stacking 準備
 
 OOF prediction は、各 validation fold の予測を、その fold を学習に使っていない Level 0 model だけで作る予測。meta learner が in-fold prediction を見て過学習するのを避けるため、stacking では必須の学習素材になる。

@@ -175,6 +175,8 @@ Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を
 - したがって pedigree / parents / grandparents は `SE` の品種コードでは足りず、馬 master または外部血統 master の ingest が必要。v5 は「既存 RACE から取れるプロフィール強化」の基準線として保持する。
 - 外部 horse master / rating history の optional ingest 入口を追加。`jravan-build-replay-dataset --horse-master-csv ... --rating-history-csv ...` で `horse_id` に紐づく sire/dam/damsire、birth date、point-in-time rating を replay feature に合流できる。
 - rating は target race の feature `as_of` 以前の最新行だけを採用する。未来の rating 行は replay feature に入れない。
+- `lightgbm-feature-set-study` を追加。`full`、`market_only`、`no_market_selected`、`profile_pedigree_rating` を同一 split で比較し、血統/レーティング投入後の specialist model 候補を評価する。
+- v5 feature-set study では `market_only` が best log loss `0.20827`、`full` が `0.20900`、`no_market_selected` / `profile_pedigree_rating` が `0.22502`。現時点では市場 feature が強く、血統/レーティングは実 master を join した v6 で再評価する。
 
 ## JRA-VAN / S3 運用方針
 
@@ -200,6 +202,7 @@ horse-lab jravan-build-replay-dataset data/interim/jravan/<race_run_id> data/pro
 horse-lab market-replay data/processed/jravan/<run_id>/replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-train data/processed/jravan/<run_id>/replay artifacts/lightgbm/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab lightgbm-ablation data/processed/jravan/<run_id>/replay artifacts/lightgbm_ablation/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
+horse-lab lightgbm-feature-set-study data/processed/jravan/<run_id>/replay artifacts/lightgbm_feature_sets/<run_id> --train-end-date YYYY-MM-DD --valid-start-date YYYY-MM-DD --valid-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab level0-oof data/processed/jravan/<run_id>/replay artifacts/oof/<run_id> --validation-start-date YYYY-MM-DD --validation-end-date YYYY-MM-DD --as-of YYYY-MM-DDTHH:MM:SS
 horse-lab stacking-build-meta-dataset artifacts/oof/<run_id>/oof_predictions.csv data/processed/jravan/<run_id>/replay/results.csv artifacts/stacking/<run_id>
 horse-lab stacking-train-meta artifacts/stacking/<run_id>/meta_features.csv artifacts/stacking_meta/<run_id>

@@ -310,6 +310,10 @@ def test_lightgbm_train_cli_invokes_training_pipeline(
                 "123",
                 "--model-version",
                 "test-lgbm",
+                "--include-feature",
+                "speed",
+                "--exclude-feature",
+                "venue",
             ]
         )
         == 0
@@ -326,6 +330,64 @@ def test_lightgbm_train_cli_invokes_training_pipeline(
     assert called["kwargs"]["feature_version"] == "fixture-v1"
     assert called["kwargs"]["random_seed"] == 123
     assert called["kwargs"]["model_version"] == "test-lgbm"
+    assert called["kwargs"]["include_feature_names"] == ["speed"]
+    assert called["kwargs"]["exclude_feature_names"] == ["venue"]
+
+
+def test_lightgbm_feature_set_study_cli_invokes_pipeline(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    called = {}
+
+    def fake_run(dataset_dir, artifact_dir, **kwargs):
+        called["dataset_dir"] = dataset_dir
+        called["artifact_dir"] = artifact_dir
+        called["kwargs"] = kwargs
+        return {
+            "best_by_log_loss": "market_only",
+            "scenarios": {
+                "market_only": {"probability": {"log_loss": 0.2}},
+            },
+        }
+
+    monkeypatch.setattr("horse_lab.cli.run_lightgbm_feature_set_study_from_csv", fake_run)
+
+    dataset_dir = tmp_path / "dataset"
+    artifact_dir = tmp_path / "feature_sets"
+    assert (
+        main(
+            [
+                "lightgbm-feature-set-study",
+                str(dataset_dir),
+                str(artifact_dir),
+                "--train-end-date",
+                "2026-05-07",
+                "--valid-start-date",
+                "2026-05-08",
+                "--valid-end-date",
+                "2026-05-08",
+                "--as-of",
+                "2026-05-08T23:59:00",
+                "--feature-version",
+                "fixture-v1",
+                "--random-seed",
+                "123",
+                "--model-version",
+                "study-lgbm",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["best_by_log_loss"] == "market_only"
+    assert called["dataset_dir"] == dataset_dir
+    assert called["artifact_dir"] == artifact_dir
+    assert called["kwargs"]["feature_version"] == "fixture-v1"
+    assert called["kwargs"]["random_seed"] == 123
+    assert called["kwargs"]["model_version"] == "study-lgbm"
 
 
 def test_jravan_daily_market_replay_cli_runs_local_raw_workflow(

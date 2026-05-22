@@ -216,6 +216,13 @@
    - `track_bias_model`: 同日 target race より前の race だけで内外/前後/時計 bias を推定。
    - `quinella_pair_model`: runner-level probability と pair market odds を組み合わせた馬連 pair probability。
 
+10. **Feature-set study gate**
+   - `lightgbm-feature-set-study` を追加済み。
+   - Default scenarios: `full`、`market_only`、`no_market_selected`、`profile_pedigree_rating`。
+   - 2026-05-22 の v5 study では `market_only` が best log loss `0.20827`。`full` は `0.20900`、`no_market_selected` と `profile_pedigree_rating` は `0.22502`。
+   - v5 の `profile_pedigree_rating` は外部 pedigree/rating が未 join なので no-market と同等。v6 以降は、血統/レーティングを入れたあとに `profile_pedigree_rating` が `no_market_selected` より改善するかを見る。
+   - 改善しない場合、raw pedigree ID の直投入ではなく OOF sire/damsire stats へ進む。
+
 ## 当面の採用ゲート
 
 - Data integrity: target race より後の情報を特徴量に混ぜない。
