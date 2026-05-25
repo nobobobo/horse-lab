@@ -30,6 +30,15 @@ Older processed datasets created before this change may not contain `entries.csv
 | Horse master CSV | External master | User supplied / versioned | birth date, sire, dam, damsire | pedigree/suitability specialist |
 | Rating history CSV | External master | User supplied / versioned | point-in-time horse rating | ability prior, no-market/residual model |
 
+## Latest Captures
+
+2026-05-25 status:
+
+- `daily_RACE_20250509_20260525_with_rt_v1` is the current runner-level replay dataset for settled evaluation. QA covers 2025-05-10 to 2026-05-17 with `3424` races, `47218` runners, `7122030` win odds time-series rows, and no QA warnings.
+- `rt_20260523_20260524_0B30_0B41_0B42_v3` is captured raw realtime data for 2026-05-23/24. It contains 72 races and 216 `*_jvgets.txt` files across `0B30` / `0B41` / `0B42`.
+- `0B30` cataloging confirms 72 O1, 72 O2, 72 O3, 72 O4, 72 O5, and 72 O6 records. Current mappers consume O1/O2-compatible win and quinella data; O3-O6 remain raw material for trio/trifecta-style mapper work.
+- The 2026-05-23/24 realtime data is not yet settleable in the main replay dataset because result/payout rows are pending. Rebuild after the next `RACE` settlement fetch.
+
 ## Feature Provenance
 
 | Feature Group | Example Features | Source |

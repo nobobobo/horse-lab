@@ -140,6 +140,43 @@ Feature importance では `coat_color_code` が full で rank 33、no-market で
 
 結論として、現時点では `market_only` が probability baseline として最も強い。`profile_pedigree_rating` が改善しなかったのは、sire/dam/damsire や point-in-time rating の実データがまだこの v5 dataset に入っていないため。次の採用ゲートは、外部 horse master / rating history を合流した v6 dataset で `profile_pedigree_rating` が `no_market_selected` を上回るか、または residual overlay で market のごく小さい補正として効くかを見る。
 
+### 2026-05-25 Replay Refresh
+
+2026-05-25 に、追加の `RACE` staging と 2026-05-23/24 の realtime odds raw を取り込み、settlement 可能な replay dataset を更新した。
+
+- Dataset: `data/processed/jravan/daily_RACE_20250509_20260525_with_rt_v1/replay`
+- QA: `artifacts/data_quality/daily_RACE_20250509_20260525_with_rt_v1/report.json`
+- Feature version: `jravan-replay-v5`
+- Race dates in QA: 2025-05-10 から 2026-05-17
+- QA warnings: none
+
+| Item | Count |
+| --- | ---: |
+| Races | 3424 |
+| Entries / features / results | 47218 |
+| Latest odds rows | 47218 |
+| Odds time series rows | 7122030 |
+| Payout rows | 50654 |
+| Unique horses | 11714 |
+| Missing horse ID rows | 0 |
+| Median odds snapshots per runner | 150 |
+
+2026-05-23/24 の `0B30/0B41/0B42` raw は S3 から local に同期し、staging では 72 races、odds `1,248,505` rows を確認した。ただしこの期間は結果・払戻がまだ揃っていないため、settleable replay からは除外されている。次回 `RACE` settlement を取得した時点で、同じ raw odds を再合流して評価に入れる。
+
+同じ updated dataset で feature-set study を再実行した。
+
+- Artifact: `artifacts/lightgbm_feature_sets/daily_RACE_20250509_20260525_with_rt_v1/feature_set_study_summary.json`
+- Validation: 2026-03-01 から 2026-05-17
+
+| Scenario | Features | Log loss | Brier | ECE |
+| --- | ---: | ---: | ---: | ---: |
+| full | 79 | 0.21116 | 0.05872 | 0.00938 |
+| market_only | 12 | 0.21045 | 0.05839 | 0.00807 |
+| no_market_selected | 57 | 0.22651 | 0.06168 | 0.00477 |
+| profile_pedigree_rating | 66 | 0.22651 | 0.06168 | 0.00477 |
+
+更新後も `market_only` が最良。追加 feature は情報としては増えているが、現状の one-year dataset では market-implied probability を上回るほどではない。引き続き、外部 pedigree / rating / pace-bias 系の非 market signal を増やして residual に効くかを見る。
+
 ## Phase 4 OOF / Stacking 準備
 
 OOF prediction は、各 validation fold の予測を、その fold を学習に使っていない Level 0 model だけで作る予測。meta learner が in-fold prediction を見て過学習するのを避けるため、stacking では必須の学習素材になる。
@@ -294,6 +331,31 @@ Daily result:
 
 Phase 5 + Phase 6 を aggregate した monitoring summary は `report_count=2`、`observations=16669`、`log_loss=0.20143`、`bet_records=1`。まだ資金投入判断ではなく、日次で candidate を回し続けて calibration drift、CLV、segment 別の悪化を監視する段階。
 
+### 2026-05-25 Daily Paper Trading Refresh
+
+updated replay dataset で 2026-05-10 から 2026-05-17 を paper trading した。
+
+- Artifact: `artifacts/paper_trading/daily_RACE_20250509_20260525_with_rt_v1_20260510_20260517/daily_paper_trading_report.json`
+- Dataset: `data/processed/jravan/daily_RACE_20250509_20260525_with_rt_v1/replay`
+- Train end: 2026-05-09
+- Serving weights: LightGBM full `0.05`、LightGBM no-market `0.00`、market `0.95`
+
+| Metric | Value |
+| --- | ---: |
+| Train races | 3318 |
+| Target races | 106 |
+| Target runners | 1452 |
+| Log loss | 0.21108 |
+| Brier | 0.05895 |
+| ECE | 0.00644 |
+| Bet records | 3 |
+| Positive edge decisions | 15 |
+| Stake | 700 JPY |
+| Profit | -700 JPY |
+| ROI | -100.0% |
+
+これは model candidate の棄却というより、現行 `convex_blend` が market に非常に近く、minimum edge 2% を満たす場面が少ないことを改めて確認した結果。CLV は latest-available setup では 0 件なので、次は締切前 snapshot を固定した live-like inference で CLV を測る。
+
 ## Market Calibration Study
 
 追加モデル第一弾として、market-implied probability に Platt-style calibration をかける walk-forward study を追加した。
@@ -398,6 +460,26 @@ Favorite strategy の odds band 別 ROI:
 
 この full evaluation は、馬連の settlement accounting が機能すること、favorite benchmark が控除率に負けること、pair probability model が必要なことを確認する基準線。
 
+### 0B42 / 0B30 Recent Capture
+
+2026-05-23/24 の realtime capture を S3 から同期し、0B42 馬連 dataset と 0B30 catalog を更新した。
+
+- Raw run: `rt_20260523_20260524_0B30_0B41_0B42_v3`
+- 0B42 dataset: `data/processed/jravan/quinella_0B42_20260523_20260524_v1/replay`
+- 0B30 catalog: `artifacts/data_catalog/rt_20260523_20260524_0B30_catalog.json`
+
+| Item | Count |
+| --- | ---: |
+| Realtime races | 72 |
+| 0B42 latest pair odds | 7596 |
+| 0B42 odds time series | 1092349 |
+| 0B42 payout rows | 0 |
+| 0B30 files | 72 |
+| 0B30 records | 432 |
+| 0B30 O1/O2/O3/O4/O5/O6 records | 72 each |
+
+0B42 payout rows が 0 なのは、対象日の result/payout がまだ replay 側に入っていないため。raw odds は有効で、settlement 可能になった後に再 build すれば評価対象になる。0B30 は O1/O2/O3/O4/O5/O6 が取れており、三連複・三連単などの mapper を追加するための raw catalog として使える。
+
 ## Phase 3.5 が必要な理由
 
 Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を再学習するだけの状態を避ける必要がある。
@@ -422,6 +504,6 @@ Phase 4 の ensemble に入る前に、各 Level 0 が同じ market signal を�
 - Phase 4: 完了。OOF、meta dataset、logistic meta learner、convex blend search、walk-forward/segment study を生成/評価済み。convex blend は market を小幅に上回り、paper trading 候補。
 - Phase 5: 完了。model registry、paper trading replay、CLV/backtest artifacts を生成済み。
 - Phase 6: 完了。日次 paper trading run と monitoring summary を実装し、実データ smoke を通過。次は日次蓄積と追加 specialist model の投入。
-- Phase 7: 進行中。Data catalog、identity map、market calibration study、Windows automated fetch wrapper を追加。
+- Phase 7: 進行中。Data catalog、identity map、market calibration study、Windows automated fetch wrapper、pre-fetch deploy gate、2026-05-23/24 realtime capture の取り込みを追加。次は settlement 後の再 build と 0B30 O3-O6 mapper。
 
 当面は収益最大化より、calibration、CLV、odds band / venue / surface / distance 別の歪み検出を優先する。

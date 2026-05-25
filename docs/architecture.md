@@ -177,6 +177,12 @@ Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を
 - rating は target race の feature `as_of` 以前の最新行だけを採用する。未来の rating 行は replay feature に入れない。
 - `lightgbm-feature-set-study` を追加。`full`、`market_only`、`no_market_selected`、`profile_pedigree_rating` を同一 split で比較し、血統/レーティング投入後の specialist model 候補を評価する。
 - v5 feature-set study では `market_only` が best log loss `0.20827`、`full` が `0.20900`、`no_market_selected` / `profile_pedigree_rating` が `0.22502`。現時点では市場 feature が強く、血統/レーティングは実 master を join した v6 で再評価する。
+- 2026-05-25 に Windows worker を current repo `tools/windows/` へ再同期し、`JvLinkDump.exe` / `JvLinkRtDump.exe` を再ビルド。fetch 後は worker を stop する運用を確認した。
+- `rt_20260523_20260524_0B30_0B41_0B42_v3` を S3 から local へ同期し、`*_jvgets.txt` 216 files を ingest。staging は odds `1,248,505` rows、72 races、`jravan_o1_win` / `jravan_o2_quinella` を含む。
+- `daily_RACE_20250509_20260525_with_rt_v1` replay dataset を build。QA は warnings なし、races `3424`、feature rows `47218`、odds time series `7122030`、payouts `50654`、unique horses `11714`。
+- 同 dataset の feature-set study では `market_only` が best log loss `0.21045`、`full` が `0.21116`、`no_market_selected` / `profile_pedigree_rating` が `0.22651`。市場 feature 優位という結論は維持。
+- 2026-05-10 から 2026-05-17 の daily paper trading refresh では target races `106`、predictions `1452`、bet records `3`、net profit `-700 JPY`。これは live bet 採用ではなく monitoring 継続の結果として扱う。
+- 2026-05-23/24 の realtime raw odds は保存済みだが、結果・払戻が揃うまでは win replay / paper trading の settleable dataset には入れない。次回 `RACE` settlement 取得後に同じ raw odds を再合流する。
 
 ## JRA-VAN / S3 運用方針
 
@@ -184,6 +190,7 @@ Phase 7 は、データの説明可能性、追加モデル、fetch 自動化を
 - JV-Link は Windows worker で実行する。
 - raw dump、stdout/stderr、manifest は S3 に upload し、成功後に Windows local file を削除する。
 - `RACE` など蓄積系は `JVOpen`、`0B31/0B41` など realtime odds は `JVRTOpen` を使う。
+- 各 fetch の前に `tools/windows/` を Windows worker の `C:\horse-lab\scripts` へ同期し、`JvLinkDump.exe` / `JvLinkRtDump.exe` を再ビルドする。worker 側の stale script は realtime wrapper や S3 upload option の失敗につながるため、pre-fetch deploy gate として扱う。
 - 過去1年の MVP backfill は `0B41` と `0B42` を日次粒度で S3 に保存する。Windows local disk の肥大化を避けるため、各日付を upload したら local output を削除する。
 - 将来の三連単/三連複 simulation 向けに `0B30` は保存期間内に日次または時間帯別で自動蓄積する。推奨は EventBridge Scheduler + SSM Run Command + EC2 start/stop で、worker は収集時だけ起動する。
 - `HR` 払戻と `H1` 票数は `RACE` raw に含まれるため、settlement と pool 検証は race backfill から復元する。過去の odds movement は realtime 系を保存していない期間は復元できない。

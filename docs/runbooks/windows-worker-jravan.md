@@ -1,5 +1,29 @@
 # Windows worker JRA-VAN runbook
 
+## Pre-fetch deploy gate
+
+Every data-fetch run should start by updating the Windows worker scripts from the current repository state. The worker is intentionally stopped when idle, so the fetch sequence is:
+
+1. Start the Windows EC2 instance.
+2. Wait for `instance-status-ok` and SSM `Online`.
+3. Deploy the current `tools/windows/` contents to `C:\horse-lab\scripts`.
+4. Rebuild `JvLinkDump.exe` and `JvLinkRtDump.exe` from the copied `.cs` sources with `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`.
+5. Verify `Invoke-JvLinkRtRaceListToS3.ps1` contains `$raceParams` and `Invoke-S3RawUpload.ps1` contains `UseSync`.
+6. Run the desired daily/realtime fetch.
+7. Confirm S3 upload and stop the instance.
+
+This gate avoids stale worker scripts. On 2026-05-25 the worker still had older wrapper code, which caused realtime fetch arguments and S3 sync options to fail until `tools/windows/` was redeployed.
+
+2026-05-25 verification:
+
+- Windows worker was updated to repo state `08d182c`.
+- `Invoke-JvLinkRtRaceListToS3.ps1` was verified to contain `$raceParams`.
+- `Invoke-S3RawUpload.ps1` was verified to support `-UseSync`.
+- `JvLinkDump.exe` and `JvLinkRtDump.exe` were rebuilt with the local .NET Framework compiler.
+- The instance was stopped after the fetch/deploy work.
+
+If the Windows instance role cannot read a temporary S3 control object, deploy via SSM inline payload or another approved transport, then keep the same verification steps. The important invariant is that fetch starts from the current repository scripts, not from stale local copies on the worker.
+
 ## Realtime historical backfill: 0B41 / 0B42
 
 Use `tools/windows/Invoke-JvLinkRtHistoricalBackfillToS3.ps1` when backfilling realtime race-key based data for the past year. The script splits race keys into weekly or monthly chunks, writes a temporary key file per chunk, runs `Invoke-JvLinkRtRaceListToS3.ps1`, and uploads raw outputs to S3.
